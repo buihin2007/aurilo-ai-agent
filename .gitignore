@@ -1,0 +1,14 @@
+# Aurilo data files - NEVER commit
+data/
+*.xlsx
+*.xls
+*.pptx
+
+# IDE & Local customization
+.claude/
+
+# Environment
+.env
+venv/
+__pycache__/
+*.pyc
