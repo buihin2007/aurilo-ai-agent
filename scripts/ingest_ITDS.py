@@ -1,4 +1,5 @@
 import openpyxl
+
 wb = openpyxl.load_workbook("data/copy ITDS_PnL_officeConnect_1.1.xlsx", data_only = True)
 ws = wb['closing_PnL']
 source_cols = [3, 4, 5, 8, 11, 15, 16, 19, 22, 26, 27, 30, 33]
@@ -47,7 +48,18 @@ for row_num in range(4, 41):
         )
     if col_pnl is not None and not str(col_pnl).endswith("%"):
         pnlline_objects.append(pnl)
-print(pnlline_objects)
+
+#Converting objects into JSON-serializable format
+import json
+from dataclasses import asdict
+data = {
+    "period": "05-2026",
+    "business_unit": "ITDS",
+    "lines": [asdict(line)for line in pnlline_objects]
+}
+
+with open("output/variance.json", "w") as f:
+    json.dump(data, f, indent=2)  
     
    
 
