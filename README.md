@@ -4,6 +4,19 @@ Aurilo AI Agent supports monthly Financial and Management Reporting by reading r
 
 The agent is designed to help finance users prepare monthly Business Review material faster while keeping every output traceable to the original source data.
 
+## Project Status
+
+**Prototype — early build.** Most of this README describes the *target* design. Only part of the pipeline runs today. Steps marked _(target design)_ below are not yet implemented.
+
+**Working today:**
+
+- `scripts/translate.py` — Finnish → English label translation. Checks `docs/glossary_finnish_english.xlsx` first (verified terms), falls back to Google Translate for the rest, and writes a `*_translated.xlsx` copy. _Note: the translation logic is implemented, but the script has no command-line entry point yet — `translate_file()` must be called manually. Running `python scripts/translate.py` currently does nothing on its own._
+- `scripts/ingest_ITDS.py` — parses the ITDS file's `closing_PnL` sheet and writes `output/variance.json`. This file currently holds **raw figures only** (Actual / Budget / Last Year / Prior Forecast for month, YTD, and FY26). No variances, materiality flags, or source-cell references are computed yet, and column/row positions are hardcoded rather than scanned.
+
+**Not built yet _(target design)_:** data validation, the variance calculation itself, insight selection, commentary drafting, PPTX export, the `run_monthly_report.py` orchestrator, and the Managed Services / Group ingest scripts.
+
+> Known inconsistency: this README uses the period format `2026-05` (year-month, sortable). The current code emits `05-2026`. These will be reconciled to `2026-05`.
+
 ## What The Agent Does
 
 - Reads monthly financial reporting Excel files.
@@ -43,15 +56,23 @@ The agent reads files from this folder when the monthly workflow is run.
 
 ### 3. Run The Monthly Report Workflow
 
-Start the reporting workflow for the selected month and business unit.
+**Today** the pipeline runs as individual scripts, in order. Only translation and ITDS ingest are implemented:
 
-Example:
+```bash
+# 1. Translate Finnish labels → *_translated.xlsx
+#    (logic only — no CLI entry point yet; call translate_file() manually)
+
+# 2. Parse the ITDS closing_PnL sheet → output/variance.json (raw figures only)
+python scripts/ingest_ITDS.py
+```
+
+`ingest_ITDS.py` has no arguments — the input filename, sheet, and period are fixed inside the script. It reads `data/copy ITDS_PnL_officeConnect_1.1.xlsx` and overwrites `output/variance.json` on each run.
+
+**Target design** — a single orchestrator runs the full pipeline for a chosen month and business unit:
 
 ```bash
 python scripts/run_monthly_report.py --period 2026-05 --business-unit ITDS
 ```
-
-The final workflow should run these steps automatically:
 
 ```text
 read input files
@@ -61,6 +82,8 @@ select key insights
 draft commentary
 prepare output files
 ```
+
+_The orchestrator, and every step after ingest, are not yet built._
 
 ### 4. Review Data Checks
 
@@ -78,9 +101,9 @@ If validation fails, fix the input file or confirm the issue with the responsibl
 
 ### 5. Review Variance Analysis
 
-Review the variance output prepared by the agent.
+**Today** `output/variance.json` contains **raw figures only** — for each P&L line, the Actual / Budget / Last Year / Prior Forecast values across month, YTD, and FY26, plus `source_sheet` and `source_row`. Despite the filename, no variances are calculated yet. You can eyeball Actual vs Budget by hand, but the agent does not compute or flag anything.
 
-The agent should show:
+**Target design** _(not yet built)_ — the variance step should show, per line:
 
 - Actual vs Budget variance
 - Actual vs Forecast variance
@@ -138,7 +161,13 @@ The final version should be approved by the responsible finance user before bein
 
 After review, export the reporting outputs.
 
-Expected output files may include:
+**Today** the pipeline produces exactly one file, overwritten each run:
+
+```text
+output/variance.json          # ITDS only, raw figures — see §5
+```
+
+**Target design** _(not yet built)_ — per-period, per-business-unit outputs:
 
 ```text
 output/<period>_<business_unit>_variance.json
