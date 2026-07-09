@@ -12,12 +12,12 @@ An AI agent that automates monthly financial commentary for Aurilo Group (Finnis
 
 ## Current pilot scope (3-week ITDS pilot)
 
-Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` (v1.0, 8 Jul 2026), the current deliverable is the **client-defined Minimum Viable Pilot** (brief Section 15) for a **single business unit — ITDS only**. Everything else in this file that describes MS, Group, budget-based flagging, or governance is **Phase 2** and out of scope for the pilot.
+Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` (v1.0, 8 Jul 2026) and the follow-up meeting `Meeting_Notes_070726.docx` (7 Jul 2026), the current deliverable is the **client-defined Minimum Viable Pilot** (brief Section 15) for a **single business unit — ITDS only**. Everything else in this file that describes MS, Group, budget-based flagging, or governance is **Phase 2** and out of scope for the pilot.
 
 **In scope now (ITDS pilot):**
 1. One business unit — ITDS (`masterDataSheet`), translated source file already prepared.
-2. P&L **actual vs forecast** data only (ACTUAL and PREVIOUS FORECAST blocks). Actual-vs-forecast is the **primary comparison** for the pilot — not budget.
-3. A small agreed set of materiality thresholds (values pending client confirmation — see Variance engine rules).
+2. P&L **Current Forecast (Actuals+FC) vs Previous Forecast** — the primary comparison for the pilot (not budget). See "Column semantics" below and Variance engine rules. _Our interpretation of these two columns is an assumption pending Aurilo verification (Meeting notes, Item 2)._
+3. Materiality threshold **confirmed at 2%**, applied to all KPIs and all P&L line items (Meeting notes, Item 1). Output = full flagged list plus a highlighted **top 5–10 by absolute magnitude**.
 4. Teams for questions and reminders (blocked on Teams bot access).
 5. SharePoint List or Dataverse as first knowledge base (blocked on owner mapping + KB store).
 6. Finance review before comments are used — agent produces **draft only**, no auto-publish.
@@ -33,7 +33,10 @@ Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.doc
 | Microsoft Teams bot | MVP §15.4 — questions & reminders | Bot/app registration + permissions to send/receive messages |
 | Owner mapping + KB store | MVP §15.5 — who to ask, where to store answers | P&L-responsibility → named people (Teams/email IDs) + provisioned SharePoint List or Dataverse table with write access |
 
-**Business decisions pending from client:** final materiality thresholds; confirm actual-vs-forecast baseline; named Finance reviewer; monthly data-refresh owner/timing/location.
+**Assumptions we are building on — but must re-confirm with Aurilo:**
+- **Column semantics (Meeting notes, Item 2 — NEEDS VERIFICATION):** Our reading of the ITDS file is that the **Actuals+FC** column is the *Current Forecast* (closed months hold actuals; remaining months hold the latest revised forecast), and the **Previous Forecast** column holds the same actuals but carries the *prior month's* forecast for the remaining months. The pilot's core variance is Current Forecast vs Previous Forecast, which shows how management expectations shifted over the past month. We will build on this interpretation and ask Aurilo to confirm it is correct.
+
+**Business decisions still pending from client:** named Finance reviewer; monthly data-refresh owner/timing/location. _(Materiality threshold and forecast baseline are now confirmed — see Items 1–2 above.)_
 
 ---
 
@@ -91,10 +94,10 @@ class PnLLine:
     name_fi: str            # Original Finnish label
     account_code: str       # Column A value
     period: str             # e.g. "2026-03" — target month parsed from column header
-    actual: Optional[float]
-    budget: Optional[float]
-    ly: Optional[float]     # Last Year actual
-    fct: Optional[float]    # Previous Forecast
+    cur_fct: Optional[float]    # Current Forecast = Actuals+FC column (actual if month closed, else latest revised forecast)
+    prev_fct: Optional[float]   # Previous Forecast column (actual if closed, else prior month's forecast) — pilot baseline
+    budget: Optional[float]     # Phase 2
+    ly: Optional[float]         # Last Year actual — Phase 2
     ytd_actual: Optional[float]
     ytd_budget: Optional[float]
     fy_fct: Optional[float]
@@ -102,7 +105,7 @@ class PnLLine:
     source_file: str        # original filename (strip "_translated"), e.g. "ITDS_PnL_officeConnect_1.1.xlsx"
     source_sheet: str       # always "masterDataSheet"
     source_row: int         # Excel row number
-    source_col_actual: str  # column letter where ACTUAL for target period is found, e.g. "F"
+    source_col_cur_fct: str   # column letter where Actuals+FC for target period is found, e.g. "F"
 ```
 
 Every figure carries its source cell reference (e.g. `masterDataSheet!F12`). This is non-negotiable — it enables the full audit trail.
@@ -114,10 +117,26 @@ Every figure carries its source cell reference (e.g. `masterDataSheet!F12`). Thi
 masterDataSheet organises data in **scenario blocks** across a wide column range. Each block covers the same set of months (Jan 2025 – Dec 2026 or similar).
 
 ```
-Col A  | Col B       | ...ACTUAL block... | ...BUDGET block... | ...PREV FCT block... | ...KEY FIGURES...
--------|-------------|--------------------|--------------------|----------------------|------------------
-Code   | Finnish lbl | Jan-25 Feb-25 ...  | Jan-25 Feb-25 ...  | Jan-25 Feb-25 ...    | ratios/KPIs
+Col A  | Col B       | ...ACTUALS+FC block... | ...PREV FCT block... | ...BUDGET block... | ...KEY FIGURES...
+-------|-------------|------------------------|----------------------|--------------------|------------------
+Code   | Finnish lbl | Jan-25 Feb-25 ...      | Jan-25 Feb-25 ...    | Jan-25 Feb-25 ...  | ratios/KPIs
 ```
+
+### Column semantics — Actuals+FC vs Previous Forecast (ASSUMPTION, pending Aurilo verification)
+
+Per `Meeting_Notes_070726.docx` (Item 2), our working interpretation of the two forecast columns is:
+
+- **Actuals+FC (Current Forecast):** revised every month. Closed months hold the actual figure; remaining (future) months hold the **latest revised forecast** based on the most recent actuals. By December all twelve months are actuals.
+- **Previous Forecast:** same actuals for closed months, but the future months carry over the **prior month's** Actuals+FC forecast — i.e. what the forecast looked like one month ago, before the latest actuals.
+
+_Concrete example — start of June 2026 (May actuals in):_
+
+| Month | Type | Actuals+FC (Current) | Previous Forecast |
+|---|---|---|---|
+| Jan–May | Actual | Actual figures (same in both) | Actual figures (same in both) |
+| Jun–Dec | Forecast | Revised forecast using May actuals | Forecast from last month (pre-May actuals) |
+
+The pilot's core comparison is **Actuals+FC vs Previous Forecast**, which surfaces how management expectations shifted over the past month — a key input to the Business Review commentary. **This column interpretation is an assumption we are building on; it must be re-confirmed with Aurilo.**
 
 ### How to locate a value — never hardcode column index
 
@@ -211,35 +230,37 @@ Full glossary (with verified translations): `docs/glossary_finnish_english.xlsx`
 
 ## Variance engine rules
 
-**Pilot primary comparison is actual vs forecast** (`fct`). Budget and LY comparisons are Phase 2 — compute them if data is present, but pilot flagging is driven by the forecast comparison.
+**Pilot primary comparison is Current Forecast (Actuals+FC) vs Previous Forecast** (`cur_fct` vs `prev_fct`). Budget and LY comparisons are Phase 2 — compute them if data is present, but pilot flagging is driven by the forecast-vs-forecast comparison. _(See "Column semantics" for the assumption this rests on.)_
 
-Three comparisons per P&L line:
+Comparison per P&L line:
 
 ```python
-vs_fct_abs = actual - fct
-vs_fct_pct = (actual - fct) / abs(fct) if fct else None       # ← pilot primary
+vs_prev_fct_abs = cur_fct - prev_fct
+vs_prev_fct_pct = (cur_fct - prev_fct) / abs(prev_fct) if prev_fct else None   # ← pilot primary
 
-vs_budget_abs = actual - budget
-vs_budget_pct = (actual - budget) / abs(budget) if budget else None
-
-vs_ly_abs = actual - ly
-vs_ly_pct = (actual - ly) / abs(ly) if ly else None
+# Phase 2, only if data present:
+vs_budget_abs = cur_fct - budget
+vs_budget_pct = (cur_fct - budget) / abs(budget) if budget else None
+vs_ly_abs = cur_fct - ly
+vs_ly_pct = (cur_fct - ly) / abs(ly) if ly else None
 ```
 
-A line is **flagged** if both thresholds are breached simultaneously on the primary comparison:
-`abs(vs_fct_abs) > THRESHOLD_ABS AND abs(vs_fct_pct) > THRESHOLD_PCT`
+**Flagging — materiality threshold CONFIRMED at 2%** (Meeting notes, Item 1). Applies to **all KPIs and all P&L line items**, no exceptions:
+`flagged = vs_prev_fct_pct is not None and abs(vs_prev_fct_pct) > 0.02`
 
-**Thresholds are unconfirmed — keep them configurable, do not hardcode.** The brief suggests **€25k / 10%** (plus per-line rules); current placeholder logic uses **€100k / 5%**. Client must confirm the final pilot values (scope doc Section 4.2).
+Keep the 2% value as a single configurable constant (`MATERIALITY_PCT = 0.02`). There is **no absolute-euro floor** in the confirmed rule — flagging is purely percentage-based. (The earlier €25k/10% and €100k/5% figures are superseded.)
+
+**Output ranking:** produce the full list of every line above 2%, **plus a highlighted top 5–10 ranked by absolute deviation** (`abs(vs_prev_fct_abs)`), so Finance sees the largest movers first.
 
 ---
 
 ## Validation rules (run before variance engine)
 
 Stop the pipeline and raise an exception if:
-- Target month column not found in the ACTUAL block of masterDataSheet
-- Target month column not found in the PREVIOUS FORECAST block (forecast data missing — the pilot's primary comparison)
-- Actual or Forecast is None on a material P&L line after column lookup
-- Any single line shows Actual > 10× the same line's prior month Actual
+- Target month column not found in the ACTUALS+FC block of masterDataSheet
+- Target month column not found in the PREVIOUS FORECAST block (the pilot's primary comparison needs both)
+- Current Forecast (Actuals+FC) or Previous Forecast is None on a material P&L line after column lookup
+- Any single line shows a closed-month actual > 10× the same line's prior month actual
 
 _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals reconcile to Group total within €10k tolerance (requires MS + Group files).
 
@@ -251,27 +272,26 @@ _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals rec
 {
   "period": "2026-03",
   "business_unit": "ITDS",
+  "materiality_pct": 0.02,
+  "top_movers": ["Personnel Costs", "Subcontractor Costs", "Net Revenue"],
   "lines": [
     {
       "name": "Net Revenue",
       "name_fi": "Liikevaihto",
       "account_code": "4100",
-      "actual": 4821000,
-      "budget": 5100000,
-      "ly": 4650000,
-      "fct": 4900000,
-      "vs_budget_abs": -279000,
-      "vs_budget_pct": -0.0547,
-      "vs_ly_abs": 171000,
-      "vs_ly_pct": 0.0368,
-      "vs_fct_abs": -79000,
-      "vs_fct_pct": -0.0161,
-      "flagged": true,
+      "cur_fct": 4821000,
+      "prev_fct": 4900000,
+      "vs_prev_fct_abs": -79000,
+      "vs_prev_fct_pct": -0.0161,
+      "flagged": false,
+      "rank": null,
       "source_cell": "masterDataSheet!F12"
     }
   ]
 }
 ```
+
+`top_movers` / `rank` capture the highlighted top 5–10 lines by `abs(vs_prev_fct_abs)`. `flagged` is `abs(vs_prev_fct_pct) > 0.02`. Budget/LY fields may be added under Phase 2.
 
 ---
 
