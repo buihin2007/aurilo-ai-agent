@@ -16,8 +16,8 @@ Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.doc
 
 **In scope now (ITDS pilot):**
 1. One business unit — ITDS (`masterDataSheet`), translated source file already prepared.
-2. P&L **Current Forecast (Actuals+FC) vs Previous Forecast** — the primary comparison for the pilot (not budget). See "Column semantics" below and Variance engine rules. _Our interpretation of these two columns is an assumption pending Aurilo verification (Meeting notes, Item 2)._
-3. Materiality threshold **confirmed at 2%**, applied to all KPIs and all P&L line items (Meeting notes, Item 1). Output = full flagged list plus a highlighted **top 5–10 by absolute magnitude**.
+2. P&L **Current Forecast (Actuals+FC) vs Previous Forecast** — the primary comparison for the pilot (not budget). See "Column semantics" below and Variance engine rules. _The **Actuals+FC** column meaning is **confirmed**; our reading of the **Previous Forecast** column is **~80% confidence** and still needs Aurilo sign-off._
+3. **Materiality thresholds come from the brief (§9 "Example Variance Detection Rules")** — absolute P&L variance > €25k, variance % > 10%, plus per-line rules (gross-margin €10k, expense €10k, EBITA €20k; customer-revenue €15k is dimensional → Phase 2). Output = full flagged list plus a highlighted **top 5–10 by absolute magnitude**.
 4. Teams for questions and reminders (blocked on Teams bot access).
 5. SharePoint List or Dataverse as first knowledge base (blocked on owner mapping + KB store).
 6. Finance review before comments are used — agent produces **draft only**, no auto-publish.
@@ -34,9 +34,9 @@ Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.doc
 | Owner mapping + KB store | MVP §15.5 — who to ask, where to store answers | P&L-responsibility → named people (Teams/email IDs) + provisioned SharePoint List or Dataverse table with write access |
 
 **Assumptions we are building on — but must re-confirm with Aurilo:**
-- **Column semantics (Meeting notes, Item 2 — NEEDS VERIFICATION):** Our reading of the ITDS file is that the **Actuals+FC** column is the *Current Forecast* (closed months hold actuals; remaining months hold the latest revised forecast), and the **Previous Forecast** column holds the same actuals but carries the *prior month's* forecast for the remaining months. The pilot's core variance is Current Forecast vs Previous Forecast, which shows how management expectations shifted over the past month. We will build on this interpretation and ask Aurilo to confirm it is correct.
+- **Previous Forecast column (Meeting notes, Item 2 — ~80% confidence, NEEDS VERIFICATION):** The **Actuals+FC** column is **confirmed** as the *Current Forecast* (closed months hold actuals; remaining months hold the latest revised forecast). Our reading of the **Previous Forecast** column — same actuals, but carrying the *prior month's* forecast for the remaining months — is only ~80% certain. We are building the pilot on it (core variance = Current Forecast vs Previous Forecast, which shows how management expectations shifted over the past month) but must have Aurilo confirm the Previous Forecast column before it is locked.
 
-**Business decisions still pending from client:** named Finance reviewer; monthly data-refresh owner/timing/location. _(Materiality threshold and forecast baseline are now confirmed — see Items 1–2 above.)_
+**Business decisions still pending from client:** named Finance reviewer; monthly data-refresh owner/timing/location. _(Materiality thresholds are confirmed by the brief §9; the Actuals+FC baseline is confirmed; only the Previous Forecast column reading is still open — see Items 2–3 above.)_
 
 ---
 
@@ -122,12 +122,12 @@ Col A  | Col B       | ...ACTUALS+FC block... | ...PREV FCT block... | ...BUDGET
 Code   | Finnish lbl | Jan-25 Feb-25 ...      | Jan-25 Feb-25 ...    | Jan-25 Feb-25 ...  | ratios/KPIs
 ```
 
-### Column semantics — Actuals+FC vs Previous Forecast (ASSUMPTION, pending Aurilo verification)
+### Column semantics — Actuals+FC vs Previous Forecast (Actuals+FC confirmed; Previous Forecast ~80%)
 
-Per `Meeting_Notes_070726.docx` (Item 2), our working interpretation of the two forecast columns is:
+Per `Meeting_Notes_070726.docx` (Item 2), our interpretation of the two forecast columns is:
 
-- **Actuals+FC (Current Forecast):** revised every month. Closed months hold the actual figure; remaining (future) months hold the **latest revised forecast** based on the most recent actuals. By December all twelve months are actuals.
-- **Previous Forecast:** same actuals for closed months, but the future months carry over the **prior month's** Actuals+FC forecast — i.e. what the forecast looked like one month ago, before the latest actuals.
+- **Actuals+FC (Current Forecast) — CONFIRMED:** revised every month. Closed months hold the actual figure; remaining (future) months hold the **latest revised forecast** based on the most recent actuals. By December all twelve months are actuals.
+- **Previous Forecast — ~80% confidence, NEEDS VERIFICATION:** our reading is that it holds the same actuals for closed months, but the future months carry over the **prior month's** Actuals+FC forecast — i.e. what the forecast looked like one month ago, before the latest actuals. This is not yet confirmed by Aurilo.
 
 _Concrete example — start of June 2026 (May actuals in):_
 
@@ -136,7 +136,7 @@ _Concrete example — start of June 2026 (May actuals in):_
 | Jan–May | Actual | Actual figures (same in both) | Actual figures (same in both) |
 | Jun–Dec | Forecast | Revised forecast using May actuals | Forecast from last month (pre-May actuals) |
 
-The pilot's core comparison is **Actuals+FC vs Previous Forecast**, which surfaces how management expectations shifted over the past month — a key input to the Business Review commentary. **This column interpretation is an assumption we are building on; it must be re-confirmed with Aurilo.**
+The pilot's core comparison is **Actuals+FC vs Previous Forecast**, which surfaces how management expectations shifted over the past month — a key input to the Business Review commentary. **The Actuals+FC column is confirmed; the Previous Forecast column reading is ~80% certain and must be re-confirmed with Aurilo before it is locked.**
 
 ### How to locate a value — never hardcode column index
 
@@ -245,12 +245,28 @@ vs_ly_abs = cur_fct - ly
 vs_ly_pct = (cur_fct - ly) / abs(ly) if ly else None
 ```
 
-**Flagging — materiality threshold CONFIRMED at 2%** (Meeting notes, Item 1). Applies to **all KPIs and all P&L line items**, no exceptions:
-`flagged = vs_prev_fct_pct is not None and abs(vs_prev_fct_pct) > 0.02`
+**Flagging — materiality thresholds from the brief (§9 "Example Variance Detection Rules").** A line is flagged if it breaches **any** applicable rule (OR logic), evaluated on the primary `vs_prev_fct` comparison:
 
-Keep the 2% value as a single configurable constant (`MATERIALITY_PCT = 0.02`). There is **no absolute-euro floor** in the confirmed rule — flagging is purely percentage-based. (The earlier €25k/10% and €100k/5% figures are superseded.)
+```python
+# Brief §9 thresholds — keep configurable, do not hardcode inline
+MATERIALITY = {
+    "abs_eur": 25_000,      # absolute P&L variance > €25k
+    "pct": 0.10,            # variance percentage > 10%
+    "gross_margin_eur": 10_000,
+    "expense_eur": 10_000,
+    "ebita_eur": 20_000,
+}
 
-**Output ranking:** produce the full list of every line above 2%, **plus a highlighted top 5–10 ranked by absolute deviation** (`abs(vs_prev_fct_abs)`), so Finance sees the largest movers first.
+flagged = (
+    (vs_prev_fct_abs is not None and abs(vs_prev_fct_abs) > MATERIALITY["abs_eur"])
+    or (vs_prev_fct_pct is not None and abs(vs_prev_fct_pct) > MATERIALITY["pct"])
+    # plus per-line-type rules where the line is a gross-margin / expense / EBITA line
+)
+```
+
+Per-line-type rules (gross-margin €10k, expense €10k, EBITA €20k) apply on the matching line types. **Customer-revenue > €15k and recurring-variance (≥2 consecutive months) are Phase 2** — they need dimensional data / prior-period history not in the pilot. This threshold set is confirmed by the brief; the earlier meeting-notes 2% and the €100k/5% placeholder are **superseded**.
+
+**Output ranking:** produce the full list of every flagged line, **plus a highlighted top 5–10 ranked by absolute deviation** (`abs(vs_prev_fct_abs)`), so Finance sees the largest movers first.
 
 ---
 
@@ -272,7 +288,7 @@ _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals rec
 {
   "period": "2026-03",
   "business_unit": "ITDS",
-  "materiality_pct": 0.02,
+  "materiality": { "abs_eur": 25000, "pct": 0.10, "gross_margin_eur": 10000, "expense_eur": 10000, "ebita_eur": 20000 },
   "top_movers": ["Personnel Costs", "Subcontractor Costs", "Net Revenue"],
   "lines": [
     {
@@ -291,7 +307,7 @@ _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals rec
 }
 ```
 
-`top_movers` / `rank` capture the highlighted top 5–10 lines by `abs(vs_prev_fct_abs)`. `flagged` is `abs(vs_prev_fct_pct) > 0.02`. Budget/LY fields may be added under Phase 2.
+`top_movers` / `rank` capture the highlighted top 5–10 lines by `abs(vs_prev_fct_abs)`. `flagged` follows the brief §9 rules (see Variance engine rules). Budget/LY fields may be added under Phase 2.
 
 ---
 
