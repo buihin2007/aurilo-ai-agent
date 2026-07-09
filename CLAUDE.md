@@ -10,6 +10,33 @@ An AI agent that automates monthly financial commentary for Aurilo Group (Finnis
 
 ---
 
+## Current pilot scope (3-week ITDS pilot)
+
+Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` (v1.0, 8 Jul 2026), the current deliverable is the **client-defined Minimum Viable Pilot** (brief Section 15) for a **single business unit — ITDS only**. Everything else in this file that describes MS, Group, budget-based flagging, or governance is **Phase 2** and out of scope for the pilot.
+
+**In scope now (ITDS pilot):**
+1. One business unit — ITDS (`masterDataSheet`), translated source file already prepared.
+2. P&L **actual vs forecast** data only (ACTUAL and PREVIOUS FORECAST blocks). Actual-vs-forecast is the **primary comparison** for the pilot — not budget.
+3. A small agreed set of materiality thresholds (values pending client confirmation — see Variance engine rules).
+4. Teams for questions and reminders (blocked on Teams bot access).
+5. SharePoint List or Dataverse as first knowledge base (blocked on owner mapping + KB store).
+6. Finance review before comments are used — agent produces **draft only**, no auto-publish.
+
+**Explicitly OUT of scope (Phase 2):** Managed Services (MS) and Group/Management report files; customer / cost-centre / service-area / project-level dimensions; Business Controller validation gate and confidence-based routing (brief §7–8); governance — role-based access, full audit trail, version history, escalation paths (brief §14).
+
+**Can proceed now with no external dependency:** ITDS ingestion, validation layer, variance engine, and a **provider-agnostic LLM layer** connected by configuration once Aurilo's internal LLM is available (tested meanwhile with dummy figures only).
+
+**Blocking dependencies from Aurilo (must start Week 1):**
+| Dependency | Needed for | What's required |
+|---|---|---|
+| Internal LLM access | Draft commentary (core of pilot) | Endpoint + credentials; model; API type (Azure OpenAI / OpenAI-compatible / internal proxy); rate/quota limits; data-handling policy |
+| Microsoft Teams bot | MVP §15.4 — questions & reminders | Bot/app registration + permissions to send/receive messages |
+| Owner mapping + KB store | MVP §15.5 — who to ask, where to store answers | P&L-responsibility → named people (Teams/email IDs) + provisioned SharePoint List or Dataverse table with write access |
+
+**Business decisions pending from client:** final materiality thresholds; confirm actual-vs-forecast baseline; named Finance reviewer; monthly data-refresh owner/timing/location.
+
+---
+
 ## Repository structure
 
 ```
@@ -24,8 +51,7 @@ aurilo-ai-agent/
 │   ├── ingest_group.py          ← step 2c: parse Group file → normalized JSON
 │   └── variance.py              ← step 3: variance engine (consumes all 3 JSON outputs)
 ├── output/                      ← variance.json output
-├── docs/
-│   ├── label_mapping.json       ← Finnish → English mapping (human-reviewed)
+├── docs/     
 │   ├── glossary_finnish_english.xlsx
 │   └── *.md                     ← reference guides
 ├── .claude/commands/
@@ -185,21 +211,25 @@ Full glossary (with verified translations): `docs/glossary_finnish_english.xlsx`
 
 ## Variance engine rules
 
+**Pilot primary comparison is actual vs forecast** (`fct`). Budget and LY comparisons are Phase 2 — compute them if data is present, but pilot flagging is driven by the forecast comparison.
+
 Three comparisons per P&L line:
 
 ```python
+vs_fct_abs = actual - fct
+vs_fct_pct = (actual - fct) / abs(fct) if fct else None       # ← pilot primary
+
 vs_budget_abs = actual - budget
 vs_budget_pct = (actual - budget) / abs(budget) if budget else None
 
 vs_ly_abs = actual - ly
 vs_ly_pct = (actual - ly) / abs(ly) if ly else None
-
-vs_fct_abs = actual - fct
-vs_fct_pct = (actual - fct) / abs(fct) if fct else None
 ```
 
-A line is **flagged** if: `abs(vs_budget_abs) > 100_000 AND abs(vs_budget_pct) > 0.05`
-(Both thresholds must be breached simultaneously — confirm exact values with Aurilo.)
+A line is **flagged** if both thresholds are breached simultaneously on the primary comparison:
+`abs(vs_fct_abs) > THRESHOLD_ABS AND abs(vs_fct_pct) > THRESHOLD_PCT`
+
+**Thresholds are unconfirmed — keep them configurable, do not hardcode.** The brief suggests **€25k / 10%** (plus per-line rules); current placeholder logic uses **€100k / 5%**. Client must confirm the final pilot values (scope doc Section 4.2).
 
 ---
 
@@ -207,10 +237,11 @@ A line is **flagged** if: `abs(vs_budget_abs) > 100_000 AND abs(vs_budget_pct) >
 
 Stop the pipeline and raise an exception if:
 - Target month column not found in the ACTUAL block of masterDataSheet
-- Target month column not found in the BUDGET block (budget data missing)
-- Any of Actual / Budget / LY is None on a material P&L line after column lookup
-- BU totals do not reconcile to Group total within €10k tolerance
+- Target month column not found in the PREVIOUS FORECAST block (forecast data missing — the pilot's primary comparison)
+- Actual or Forecast is None on a material P&L line after column lookup
 - Any single line shows Actual > 10× the same line's prior month Actual
+
+_Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals reconcile to Group total within €10k tolerance (requires MS + Group files).
 
 ---
 
