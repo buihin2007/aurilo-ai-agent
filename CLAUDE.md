@@ -290,7 +290,7 @@ _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals rec
   "business_unit": "ITDS",
   "materiality": { "abs_eur": 25000, "pct": 0.10, "gross_margin_eur": 10000, "expense_eur": 10000, "ebita_eur": 20000 },
   "top_movers": ["Personnel Costs", "Subcontractor Costs", "Net Revenue"],
-  "lines": [
+  "objects": [
     {
       "name": "Net Revenue",
       "name_fi": "Liikevaihto",
@@ -430,6 +430,7 @@ Financial terms auto-translate poorly. "Käyttökate" can come back as "operatin
 - Do not open the file without `data_only=True` — formula strings instead of values.
 - Do not commit anything in `data/` to git.
 - Do not send raw Finnish labels or customer names to the LLM API.
+- LLM payloads must be **whitelist-built** (explicit list of allowed fields), never blacklist-filtered: `name_fi`, `source_file`/`source_sheet`/`source_row`/`source_col_*`, and any line whose label contains an external counterparty name (e.g. "MPY Yrityspalvelut") never leave the machine. `name_fi` and `source_*` stay in the local JSONs for audit — the filter lives in the LLM payload builder, not in ingest/variance.
 - Do not hardcode column positions — always scan for the header row first.
 
 ---
