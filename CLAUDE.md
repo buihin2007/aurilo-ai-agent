@@ -5,80 +5,121 @@
 An AI agent that automates monthly financial commentary for Aurilo Group (Finnish IT company — Tietokeskus/Enfo brands). The agent reads Excel exports from Workday Adaptive Planning, calculates variances, generates English commentary via LLM, and produces a draft Business Review PPTX.
 
 **Stack:** Python (data processing) + n8n (orchestration + AI agents) + ChromaDB (RAG) + python-pptx (report output)
-**Scope:** Prototype only — runs locally on tech lead's laptop, not production-ready
+**Scope:** Prototype only — runs locally on tech lead's laptop (internal decision — disclosed to Aurilo in the dependency document, awaiting explicit data-policy confirmation), not production-ready
 **Data:** Real Aurilo data, processed locally. Only aggregated figures sent to LLM API.
+
+---
+
+## ⚡ ERP migration & format v2 (June 2026) — READ THIS FIRST
+
+In June 2026 Aurilo moved to a **new ERP**; the entire **chart of accounts changed** and all Excel exports were rebuilt on a new template ("format v2"). The old-format files (May 2026 and earlier) are **obsolete**. Everything below describes format v2 unless explicitly marked LEGACY.
+
+**Confirmations received from Aurilo (email, 17 Jul 2026) — treat as authoritative:**
+
+1. **FSLI renames confirmed** (same scope, just renamed — see Crosswalk below). Verified numerically: March 2026 (closed month) reconciles exactly on revenue; other lines differ only ~€1.5k (minor account reclassifications between COGS and Non-Operating Income).
+2. **New CoA confirmed**: 3-digit account groups (`400 Purchases`) + 6-digit leaf GL accounts (`400000 Purchases hardware`). Build on the new codes.
+3. **Operative EBITA is the line the brief §9 "EBITA > €20k" rule refers to.** At BU level, `Operative EBITA` == `Business Unit Profit` (same figure, Adaptive structure). Group-level: `Aurilo Operative EBITA = MS BU Profit + ITDS BU Profit − Group Functions BU Profit`; **OTI (One-Time Items) are excluded** from Operative EBITA.
+4. **Template dialects will be unified** by Aurilo (standalone-BU dialect vs Group-workbook dialect — see Anatomy below). Until then, handle both via aliases.
+5. **History is self-contained**: LY columns hold 2025 figures restated under the new CoA. Old-format files are no longer needed.
+6. **BU standalone files are the source of truth** (not the Group workbook). Group workbook is currently in **thousands of euros** (will be changed to euros by Aurilo); BU files are in euros. ITDS standalone is "more accurate" (has Business Unit Profit / Direct Margin lines the Group workbook lacks).
+7. **Prior FC semantics CONFIRMED** (was the long-standing ~80% open question, now closed): if reporting month is June, Prior FC holds **actuals through May** and the remaining months hold the **previous forecast**. CY holds actuals for closed months + the latest revised forecast for open months.
+8. **Indentation bug in ITDS "COGS Accounts" zone acknowledged** — Aurilo may fix the template; until/unless they do, derive hierarchy from account-code structure (code-based fix is our default).
+9. **Stability going forward**: no major structural changes planned; minor changes possible over time, not monthly. → Absorb minor drift via alias/profile config + fail-loud validation.
+
+**New entities:** `Group F` = Group Functions, Aurilo's third BU (admin/support: Finance, HR, IT — expenses only). `OTI` = One-Time Items (adjustments excluded from Operative EBITA, e.g. M&A costs).
 
 ---
 
 ## Current pilot scope (3-week ITDS pilot)
 
-Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` (v1.0, 8 Jul 2026) and the follow-up meeting `Meeting_Notes_070726.docx` (7 Jul 2026), the current deliverable is the **client-defined Minimum Viable Pilot** (brief Section 15) for a **single business unit — ITDS only**. Everything else in this file that describes MS, Group, budget-based flagging, or governance is **Phase 2** and out of scope for the pilot.
+Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` (v1.0, 8 Jul 2026) and the follow-up meeting `Meeting_Notes_070726.docx`, the deliverable is the **client-defined Minimum Viable Pilot** (brief Section 15) for a **single business unit — ITDS only**.
 
 **In scope now (ITDS pilot):**
-1. One business unit — ITDS (`masterDataSheet`), translated source file already prepared.
-2. P&L **Current Forecast (Actuals+FC) vs Previous Forecast** — the primary comparison for the pilot (not budget). See "Column semantics" below and Variance engine rules. _The **Actuals+FC** column meaning is **confirmed**; our reading of the **Previous Forecast** column is **~80% confidence** and still needs Aurilo sign-off._
-3. **Materiality thresholds come from the brief (§9 "Example Variance Detection Rules")** — absolute P&L variance > €25k, variance % > 10%, plus per-line rules (gross-margin €10k, expense €10k, EBITA €20k; customer-revenue €15k is dimensional → Phase 2). Output = full flagged list plus a highlighted **top 5–10 by absolute magnitude**.
-4. Teams for questions and reminders (blocked on Teams bot access).
-5. SharePoint List or Dataverse as first knowledge base (blocked on owner mapping + KB store).
+1. One business unit — ITDS, standalone file, sheet `master` (format v2).
+2. P&L **CY (Current Forecast) vs Prior FC** — the primary comparison. Semantics of both columns are **confirmed** (see ERP-migration item 7). BUD is ingested as informational (no flagging on it).
+3. **Materiality thresholds from the brief §9**: absolute P&L variance > €25k, variance % > 10%, per-line rules (gross-margin €10k, expense €10k, EBITA €20k — EBITA rule applies to the `Operative EBITA` line, confirmed). OR logic — any breached rule flags the line. Output = full flagged list + highlighted top 5–10 by absolute magnitude.
+4. Teams for questions and reminders (blocked on Teams bot access — dependency doc sent).
+5. SharePoint List as first knowledge base (blocked on owner mapping + KB store).
 6. Finance review before comments are used — agent produces **draft only**, no auto-publish.
 
-**Explicitly OUT of scope (Phase 2):** Managed Services (MS) and Group/Management report files; customer / cost-centre / service-area / project-level dimensions; Business Controller validation gate and confidence-based routing (brief §7–8); governance — role-based access, full audit trail, version history, escalation paths (brief §14).
+**Explicitly OUT of scope (Phase 2):** MS, Group, Group F, OTI processing; customer / cost-centre / service-area / project dimensions; Business Controller validation gate and confidence-based routing (brief §7–8); governance (brief §14); budget/LY-based flagging.
 
-**Can proceed now with no external dependency:** ITDS ingestion, validation layer, variance engine, and a **provider-agnostic LLM layer** connected by configuration once Aurilo's internal LLM is available (tested meanwhile with dummy figures only).
-
-**Blocking dependencies from Aurilo (must start Week 1):**
-| Dependency | Needed for | What's required |
+**Blocking dependencies from Aurilo** (detailed in `Aurilo_LLM_Teams_Dependency_Details.docx`):
+| Dependency | Needed for | Status |
 |---|---|---|
-| Internal LLM access | Draft commentary (core of pilot) | Endpoint + credentials; model; API type (Azure OpenAI / OpenAI-compatible / internal proxy); rate/quota limits; data-handling policy |
-| Microsoft Teams bot | MVP §15.4 — questions & reminders | Bot/app registration + permissions to send/receive messages |
-| Owner mapping + KB store | MVP §15.5 — who to ask, where to store answers | P&L-responsibility → named people (Teams/email IDs) + provisioned SharePoint List or Dataverse table with write access |
+| Internal LLM access (2 deployments: mini + flagship; embedding flagged for Phase 2) | Draft commentary | requested |
+| Teams: service account + delegated channel permissions (post + read, polling, no inbound) | MVP §15.4 questions & reminders | requested |
+| Owner mapping (6 areas + default contact) + SharePoint List (7-column schema) | MVP §15.5 | requested |
 
-**Assumptions we are building on — but must re-confirm with Aurilo:**
-- **Previous Forecast column (Meeting notes, Item 2 — ~80% confidence, NEEDS VERIFICATION):** The **Actuals+FC** column is **confirmed** as the *Current Forecast* (closed months hold actuals; remaining months hold the latest revised forecast). Our reading of the **Previous Forecast** column — same actuals, but carrying the *prior month's* forecast for the remaining months — is only ~80% certain. We are building the pilot on it (core variance = Current Forecast vs Previous Forecast, which shows how management expectations shifted over the past month) but must have Aurilo confirm the Previous Forecast column before it is locked.
-
-**Business decisions still pending from client:** named Finance reviewer; monthly data-refresh owner/timing/location. _(Materiality thresholds are confirmed by the brief §9; the Actuals+FC baseline is confirmed; only the Previous Forecast column reading is still open — see Items 2–3 above.)_
-
----
-
-## Repository structure
-
-```
-aurilo-ai-agent/
-├── data/                        ← all gitignored — never commit
-│   ├── *.xlsx                   ← original Aurilo Excel files
-│   └── *_translated.xlsx        ← translated output files (generated by translate.py)
-├── scripts/
-│   ├── translate.py             ← step 1: translate Finnish labels → *_translated.xlsx (generic, all 3 files)
-│   ├── ingest_itds.py           ← step 2a: parse ITDS file → normalized JSON
-│   ├── ingest_ms.py             ← step 2b: parse MS file → normalized JSON
-│   ├── ingest_group.py          ← step 2c: parse Group file → normalized JSON
-│   └── variance.py              ← step 3: variance engine (consumes all 3 JSON outputs)
-├── output/                      ← variance.json output
-├── docs/     
-│   ├── glossary_finnish_english.xlsx
-│   └── *.md                     ← reference guides
-├── .claude/commands/
-│   └── teach.md                 ← /teach slash command
-├── .env                         ← API keys (gitignored)
-├── .gitignore
-├── requirements.txt
-└── CLAUDE.md                    ← this file
-```
+**Business decisions still pending from client:** named Finance reviewer; monthly draft delivery channel; monthly data-refresh owner/timing/location.
 
 ---
 
 ## Input files (in `data/` — never commit to git)
 
-| File | Business unit | Primary parse target |
-|---|---|---|
-| `ITDS_PnL_officeConnect_1.1.xlsx` | IT Delivery Services | `masterDataSheet` |
-| `MS P&L - Office Connect.xlsx` | Managed Services | `masterDataSheet` (verify sheet name on first open) |
-| `Management report...xlsx` | Group level | equivalent master sheet — verify on first open |
+**Current (format v2, June 2026 onward):**
+| File | Unit | Sheet | Role |
+|---|---|---|---|
+| `copy NEW_ITDS_PnL_officeConnect_v1.xlsx` | ITDS | `master` | **pilot source of truth** |
+| `MS P&L - Office Connect_NEW.xlsx` | MS | `MASTER` | Phase 2 |
+| `copy Aurilo Group office connect.xlsx` | all BUs | `Master Group/ITDS/MS/Group F/OTI` | reference/cross-check only (NOT authoritative; currently in k€; has precomputed `Differences` variance block usable as an oracle) |
 
-**Always open with `data_only=True`:**
-```python
-wb = openpyxl.load_workbook("data/ITDS_PnL_officeConnect_1.1.xlsx", data_only=True)
+**LEGACY (format v1, May 2026 and earlier) — do not build on; keep only for historical reconciliation:**
+`copy ITDS_PnL_officeConnect_1.1.xlsx` (+ `_translated`), `copy MS P&L - Office Connect.xlsx`, `copy Management report 2026 pohja Group ja Group Functions.xlsx`.
+
+**Always open with `data_only=True`.**
+
+---
+
+## Canonical model & FSLI crosswalk
+
+Internal pipeline keys on **canonical IDs owned by us** — never on source labels. Source labels are resolved to canonical IDs at ingest via the crosswalk. This is the insurance layer against future CoA/format changes.
+
+| canonical_id | LEGACY label (v1) | Current label (v2) | Confirmed |
+|---|---|---|---|
+| `revenue` | Revenue | Total Revenue | ✅ (March reconciles exactly) |
+| `other_income` | Other Income | Non-Operating Income | ✅ (~€1.5k reclass, expected) |
+| `cogs` | Materials and services | Cost of Goods Sold | ✅ |
+| `gross_margin` | Gross Margin | Gross Margin | ✅ |
+| `opex` | Other Operational Expenses | Operative Expenses | ✅ |
+| `personnel` | Personnel Costs | Personnel Expenses | (name shift, same role) |
+| `depreciation` | Depreciation | Depreciations and Amortizations | (name shift, same role) |
+| `ebita` | — (proxied by BU Profit) | **Operative EBITA** | ✅ §9 rule target |
+| `bu_profit` | Business Unit Profit | Business Unit Profit | == `ebita` at BU level |
+
+New v2-only lines (no legacy counterpart): `Direct Margin`, `New Customer Acquisition`.
+
+---
+
+## Format v2 template anatomy (`master` sheet)
+
 ```
+Row 1:  "Reporting day"   + datetime (e.g. 2026-06-30)
+Row 2:  "Reporting month" + month number (e.g. 6)
+Row 3:  "YYYY/MM" string  + "Reporting period" label   ← value sits LEFT of its label
+Row 4:  SCENARIO TAG per column:  LY | CY | BUD | Prior FC | MTD | YTD | FY | Quarter | Half
+Row 5:  month header (real datetimes) + FY/summary labels
+Row 6+: data rows
+```
+
+- **Scenario blocks by column tag (row 4)** — no block-header labels anymore. LY = 2025 (12 months, restated), CY = 2026, BUD = 2026, Prior FC = 2026, each ending with an FY column. Then precomputed summary blocks: MTD (CY/BUD/LY/PriorFC for the reporting month), YTD, FY, Quarter, Half.
+- **Label column varies**: ITDS standalone = column **B** (col A empty); MS standalone and Group workbook = column **A**. Detect dynamically (column with most strings among cols 1–3).
+- **Two dialects until Aurilo unifies** (aliases required):
+  - Standalone BU: tags `LY / CY / BUD / Prior FC`, summary = MTD/YTD/FY/Quarter/Half.
+  - Group workbook: tags `LY / CY / Prio fct / Bud26` (year-stamped! match `Bud\d\d` by pattern), block order differs (forecast before budget), summary = old-style `KEY FIGURES` (`Prior FCT`) + `Quarterly figures` + `Differences` (precomputed To Bud/To LY/To Prior FCT variances, € and %).
+  - Alias sets: prior-forecast ∈ {`Prior FC`, `Prio fct`, `Prior FCT`, `PREVIOUS FORECAST`}; budget ∈ {`BUD`, `Bud\d\d`, `BUDGET`, `Budget`}.
+- **Row zones** (ITDS master, ~135 rows): P&L summary FSLIs (≈6–23) → Revenue/COGS/GM splits by offering (≈25–50) → account detail sections with headers `COGS Accounts`, `PEX accounts`, `OPEX accounts`, `Depreciation accounts` (≈52–129) → FTE (≈131–135). Row numbers are indicative — locate by scanning, never hardcode.
+- **Hierarchy comes from account codes, NOT indent**: 6-digit code = leaf GL account, 3-digit code = account group (parent of same-prefix 6-digit codes), no code = FSLI / zone header / split line. Indent is **unreliable** (COGS Accounts zone has 18 coded accounts at indent 0). Indent may still be consulted in the P&L summary zone only.
+- **Line typing matters** (account dimension mixes member types): FSLI (flag/rank targets), account group, leaf GL account, calculated `%` lines (exclude), statistical FTE lines (exclude from monetary variance), split/dimensional lines, section headers (parse anchors only).
+- **Units**: BU standalone files in euros. Group workbook in thousands (k€) until Aurilo changes it — scale-check in validation if it is ever read.
+- Labels are **natively English** in v2 — no translation step needed. `translate.py` is retained as a fallback ONLY if Finnish labels ever reappear (check before running: Google-translating English text is wasteful and risky).
+
+### How to locate values — never hardcode positions
+
+1. Month header row = row with the most datetime cells (v2: row 5, with ~48).
+2. Tag row = month header row − 1; data starts at month header row + 1 (skip metadata/empty).
+3. A figure column = intersection of tag (via alias match on row 4) and target month (datetime year+month match on row 5).
+4. Reporting month: label-anchored scan (`Reporting period` / `Reporting month`, case-insensitive) checking cells on BOTH sides of the label; fallback = pattern scan for `MM/YYYY`-shaped string or lone datetime in the top-left region. `Reporting day` datetime (row 1) is the most robust single anchor.
 
 ---
 
@@ -90,195 +131,75 @@ from typing import Optional
 
 @dataclass
 class PnLLine:
-    name: str               # English label (from translated Excel)
-    name_fi: str            # Original Finnish label
-    account_code: str       # Column A value
-    period: str             # e.g. "2026-03" — target month parsed from column header
-    cur_fct: Optional[float]    # Current Forecast = Actuals+FC column (actual if month closed, else latest revised forecast)
-    prev_fct: Optional[float]   # Previous Forecast column (actual if closed, else prior month's forecast) — pilot baseline
-    budget: Optional[float]     # Phase 2
-    ly: Optional[float]         # Last Year actual — Phase 2
+    # identity
+    name: str                   # label as it appears in the v2 file (English)
+    canonical_id: Optional[str] # crosswalk-resolved stable ID (None for unmapped detail lines)
+    account_code: Optional[str] # 3- or 6-digit code if present (regex ^\d{3,6}\s)
+    line_type: str              # "fsli" | "group_account" | "gl_account" | "other"
+    period: str                 # "2026-06"
+    # figures (pilot)
+    cur_fc: Optional[float]     # CY column for the reporting month — CONFIRMED semantics
+    pre_fc: Optional[float]     # Prior FC column — CONFIRMED semantics
+    budget: Optional[float]     # BUD column — informational, never drives flagging
+    # Phase 2 placeholders
+    ly: Optional[float]
     ytd_actual: Optional[float]
     ytd_budget: Optional[float]
-    fy_fct: Optional[float]
     fy_budget: Optional[float]
-    source_file: str        # original filename (strip "_translated"), e.g. "ITDS_PnL_officeConnect_1.1.xlsx"
-    source_sheet: str       # always "masterDataSheet"
-    source_row: int         # Excel row number
-    source_col_cur_fct: str   # column letter where Actuals+FC for target period is found, e.g. "F"
+    # hierarchy
+    parent: Optional[str]       # account-group CODE prefix (semantic grouping key) — NOT guaranteed
+                                # to match a parsed row (e.g. group 470 has no row); never dereference
+                                # without a guard. is_subtotal was dropped: use line_type == "fsli".
+    # audit — non-negotiable
+    source_file: str
+    source_sheet: str           # "master"
+    source_row: int
+    source_col_cur_fc: str
+    source_col_pre_fc: str
 ```
 
-Every figure carries its source cell reference (e.g. `masterDataSheet!F12`). This is non-negotiable — it enables the full audit trail.
-
----
-
-## `masterDataSheet` column structure
-
-masterDataSheet organises data in **scenario blocks** across a wide column range. Each block covers the same set of months (Jan 2025 – Dec 2026 or similar).
-
-```
-Col A  | Col B       | ...ACTUALS+FC block... | ...PREV FCT block... | ...BUDGET block... | ...KEY FIGURES...
--------|-------------|------------------------|----------------------|--------------------|------------------
-Code   | Finnish lbl | Jan-25 Feb-25 ...      | Jan-25 Feb-25 ...    | Jan-25 Feb-25 ...  | ratios/KPIs
-```
-
-### Column semantics — Actuals+FC vs Previous Forecast (Actuals+FC confirmed; Previous Forecast ~80%)
-
-Per `Meeting_Notes_070726.docx` (Item 2), our interpretation of the two forecast columns is:
-
-- **Actuals+FC (Current Forecast) — CONFIRMED:** revised every month. Closed months hold the actual figure; remaining (future) months hold the **latest revised forecast** based on the most recent actuals. By December all twelve months are actuals.
-- **Previous Forecast — ~80% confidence, NEEDS VERIFICATION:** our reading is that it holds the same actuals for closed months, but the future months carry over the **prior month's** Actuals+FC forecast — i.e. what the forecast looked like one month ago, before the latest actuals. This is not yet confirmed by Aurilo.
-
-_Concrete example — start of June 2026 (May actuals in):_
-
-| Month | Type | Actuals+FC (Current) | Previous Forecast |
-|---|---|---|---|
-| Jan–May | Actual | Actual figures (same in both) | Actual figures (same in both) |
-| Jun–Dec | Forecast | Revised forecast using May actuals | Forecast from last month (pre-May actuals) |
-
-The pilot's core comparison is **Actuals+FC vs Previous Forecast**, which surfaces how management expectations shifted over the past month — a key input to the Business Review commentary. **The Actuals+FC column is confirmed; the Previous Forecast column reading is ~80% certain and must be re-confirmed with Aurilo before it is locked.**
-
-### How to locate a value — never hardcode column index
-
-1. Scan the header row to find each scenario block's start column (look for "ACTUAL", "BUDGET", "PREVIOUS FORECAST", "KEY FIGURES")
-2. Within each block, scan for the target month label (e.g. "Mar-26")
-3. Intersection of target row × target column = the cell to read
-
-```python
-def find_col(ws, header_row, block_label, month_label):
-    """Find the column index for a specific scenario + month."""
-    in_block = False
-    for col in range(1, ws.max_column + 1):
-        val = str(ws.cell(row=header_row, column=col).value or "")
-        if block_label.upper() in val.upper():
-            in_block = True
-        if in_block and month_label.lower() in val.lower():
-            return col
-    return None
-```
-
-### Row structure
-
-- Rows 1–5 (approx): file metadata, BU name, period range
-- Row 6 (approx): scenario block headers ("ACTUAL", "BUDGET", etc.)
-- Row 7 (approx): month column headers ("Jan-25", "Feb-25", ..., "Dec-26")
-- Row 8+: P&L line items (234 total labels)
-
-Scan for the month header row — do not hardcode. It is the first row where multiple cells match the pattern `Mon-YY` (e.g. "Jan-25").
-
----
-
-## Key Finnish → English labels
-
-**Shared across ITDS, MS, Group:**
-
-| Finnish | English |
-|---|---|
-| Liikevaihto | Net Revenue |
-| Myyntikate | Gross Profit |
-| Henkilöstökulut | Personnel Costs |
-| Käyttökate | EBITDA |
-| Poistot | Depreciation & Amortisation |
-| Liiketulos | Operating Profit (EBIT) |
-| Toteuma | Actual |
-| Budjetti | Budget |
-| Ennuste | Forecast |
-| Edellinen vuosi | Last Year |
-| Suorat henkilöstökulut | Direct Personnel Costs |
-| Alihankkijat | Subcontractor Costs |
-| Muut suorat kulut | Other Direct Costs |
-| Myynti- ja markkinointikulut | Sales & Marketing Costs |
-| Toimitilakulut | Premises Costs |
-| IT-kulut | IT & Systems Costs |
-| Muut liikekulut | Other Operating Costs |
-
-**MS-specific:**
-
-| Finnish | English |
-|---|---|
-| Vuosittainen toistuva liikevaihto | Annual Recurring Revenue (ARR) |
-| Kuukausittainen toistuva liikevaihto | Monthly Recurring Revenue (MRR) |
-| Asiakaspoistuma | Churn Rate |
-| Uusi ARR | New ARR |
-| Menetetty ARR | Lost ARR |
-| Sopimusliikevaihto | Contract Revenue |
-| Palveluliikevaihto | Managed Service Revenue |
-
-**Group-specific (balance sheet & cash flow):**
-
-| Finnish | English |
-|---|---|
-| Tase | Balance Sheet |
-| Vastaavaa | Assets |
-| Vastattavaa | Liabilities & Equity |
-| Lyhytaikaiset varat | Current Assets |
-| Pitkäaikaiset varat | Non-current Assets |
-| Myyntisaamiset | Trade Receivables |
-| Ostovelat | Trade Payables |
-| Lyhytaikaiset velat | Current Liabilities |
-| Pitkäaikaiset velat | Non-current Liabilities |
-| Oma pääoma | Equity |
-| Rahavirta | Cash Flow |
-| Liiketoiminnan rahavirta | Operating Cash Flow |
-| Investointien rahavirta | Investing Cash Flow |
-| Rahoituksen rahavirta | Financing Cash Flow |
-| Likvidit varat | Cash & Cash Equivalents |
-
-Full glossary (with verified translations): `docs/glossary_finnish_english.xlsx`
+Every figure carries its source cell reference. `name_fi` was dropped for v2 (files are natively English); it remains in legacy v1 JSONs only.
 
 ---
 
 ## Variance engine rules
 
-**Pilot primary comparison is Current Forecast (Actuals+FC) vs Previous Forecast** (`cur_fct` vs `prev_fct`). Budget and LY comparisons are Phase 2 — compute them if data is present, but pilot flagging is driven by the forecast-vs-forecast comparison. _(See "Column semantics" for the assumption this rests on.)_
-
-Comparison per P&L line:
+**Primary comparison: `cur_fc` vs `pre_fc`** (CY vs Prior FC — semantics confirmed). Budget/LY comparisons: compute if data present, but pilot flagging is driven only by the forecast comparison.
 
 ```python
-vs_prev_fct_abs = cur_fct - prev_fct
-vs_prev_fct_pct = (cur_fct - prev_fct) / abs(prev_fct) if prev_fct else None   # ← pilot primary
-
-# Phase 2, only if data present:
-vs_budget_abs = cur_fct - budget
-vs_budget_pct = (cur_fct - budget) / abs(budget) if budget else None
-vs_ly_abs = cur_fct - ly
-vs_ly_pct = (cur_fct - ly) / abs(ly) if ly else None
+vs_pre_fc_abs = cur_fc - pre_fc
+vs_pre_fc_pct = (cur_fc - pre_fc) / abs(pre_fc) if pre_fc else None   # ← pilot primary
+vs_budget_abs / vs_budget_pct — informational when budget present
 ```
 
-**Flagging — materiality thresholds from the brief (§9 "Example Variance Detection Rules").** A line is flagged if it breaches **any** applicable rule (OR logic), evaluated on the primary `vs_prev_fct` comparison:
+**Flagging — brief §9 thresholds, OR logic (any breached rule flags):**
 
 ```python
-# Brief §9 thresholds — keep configurable, do not hardcode inline
 MATERIALITY = {
-    "abs_eur": 25_000,      # absolute P&L variance > €25k
-    "pct": 0.10,            # variance percentage > 10%
-    "gross_margin_eur": 10_000,
-    "expense_eur": 10_000,
-    "ebita_eur": 20_000,
+    "abs_eur": 25_000, "pct": 0.10,
+    "gross_margin_eur": 10_000, "expense_eur": 10_000, "ebita_eur": 20_000,
 }
-
-flagged = (
-    (vs_prev_fct_abs is not None and abs(vs_prev_fct_abs) > MATERIALITY["abs_eur"])
-    or (vs_prev_fct_pct is not None and abs(vs_prev_fct_pct) > MATERIALITY["pct"])
-    # plus per-line-type rules where the line is a gross-margin / expense / EBITA line
-)
+# line-type rules key on canonical_id:
+GROSS_MARGIN_LINES = {"gross_margin"}
+EXPENSE_LINES      = {"cogs", "opex", "personnel", "depreciation"}
+EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
 ```
 
-Per-line-type rules (gross-margin €10k, expense €10k, EBITA €20k) apply on the matching line types. **Customer-revenue > €15k and recurring-variance (≥2 consecutive months) are Phase 2** — they need dimensional data / prior-period history not in the pilot. This threshold set is confirmed by the brief; the earlier meeting-notes 2% and the €100k/5% placeholder are **superseded**.
-
-**Output ranking:** produce the full list of every flagged line, **plus a highlighted top 5–10 ranked by absolute deviation** (`abs(vs_prev_fct_abs)`), so Finance sees the largest movers first.
+- Flag/rank **`ebita` only, not `bu_profit`** — they are identical at BU level (confirmed); flagging both duplicates the same mover.
+- Customer-revenue €15k and recurring-variance (≥2 consecutive months) rules are Phase 2.
+- **Output ranking:** full flagged list + top 5–10 by `abs(vs_pre_fc_abs)` (`top_movers` + per-line `rank`).
 
 ---
 
-## Validation rules (run before variance engine)
+## Validation rules (run before variance engine, fail loud)
 
-Stop the pipeline and raise an exception if:
-- Target month column not found in the ACTUALS+FC block of masterDataSheet
-- Target month column not found in the PREVIOUS FORECAST block (the pilot's primary comparison needs both)
-- Current Forecast (Actuals+FC) or Previous Forecast is None on a material P&L line after column lookup
-- Any single line shows a closed-month actual > 10× the same line's prior month actual
-
-_Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals reconcile to Group total within €10k tolerance (requires MS + Group files).
+- Reporting month not resolvable → raise.
+- Target month column not found in the CY block or the Prior FC block → raise.
+- `cur_fc` or `pre_fc` is None on an FSLI line → raise.
+- Required FSLIs missing (by canonical_id: revenue, cogs, gross_margin, opex, ebita) → raise.
+- Parsed line count below sanity floor → raise (v2 baseline: 107 lines @ 2026-06 → floor 65; legacy v1 baseline was 99/60).
+- **Semantic reconciliation (format-independent safety net):** for closed months, cross-check a couple of FSLIs against the Group workbook's precomputed `Differences` block (scale-adjusted) when available; and `cur_fc ≠ pre_fc` on at least some lines (guards against resolving both to the same block).
+- Unit-scale guard if reading the Group workbook: values ÷1000 vs BU file → convert or raise.
 
 ---
 
@@ -286,163 +207,78 @@ _Phase 2 (out of pilot scope):_ budget-column presence checks, and BU-totals rec
 
 ```json
 {
-  "period": "2026-03",
+  "period": "2026-06",
   "business_unit": "ITDS",
   "materiality": { "abs_eur": 25000, "pct": 0.10, "gross_margin_eur": 10000, "expense_eur": 10000, "ebita_eur": 20000 },
-  "top_movers": ["Personnel Costs", "Subcontractor Costs", "Net Revenue"],
+  "top_movers": ["Cost of Goods Sold", "Total Revenue"],
   "objects": [
     {
-      "name": "Net Revenue",
-      "name_fi": "Liikevaihto",
-      "account_code": "4100",
-      "cur_fct": 4821000,
-      "prev_fct": 4900000,
-      "vs_prev_fct_abs": -79000,
-      "vs_prev_fct_pct": -0.0161,
-      "flagged": false,
-      "rank": null,
-      "source_cell": "masterDataSheet!F12"
+      "name": "Total Revenue",
+      "canonical_id": "revenue",
+      "cur_fc": 8369966.06,
+      "pre_fc": 8290000.0,
+      "vs_pre_fc_abs": 79966.06,
+      "vs_pre_fc_pct": 0.0096,
+      "flagged": true,
+      "rank": 2,
+      "source_cell_cur_fc": "master!U6",
+      "source_cell_pre_fc": "master!AT6"
     }
   ]
 }
 ```
 
-`top_movers` / `rank` capture the highlighted top 5–10 lines by `abs(vs_prev_fct_abs)`. `flagged` follows the brief §9 rules (see Variance engine rules). Budget/LY fields may be added under Phase 2.
+Ingest writes `output/itds_<period>.json` (same `objects` key); files are period-stamped, never overwritten — history accumulates for Phase-2 recurring-variance detection.
 
 ---
 
-## Parse approach
-
-`masterDataSheet` is the canonical source of truth for ITDS and MS. Group file has a different structure and is handled by its own parser.
-
-The 3 files are **not formatted the same** — sheet names, column headers, and layout differ enough that a single generic parser would be fragile. Each BU has its own dedicated ingest script. `translate.py` is the only generic script.
+## Scripts & run order
 
 ```
-translate.py          → generic, works on all 3 files
-ingest_itds.py        → hardcoded to ITDS_PnL_officeConnect_1.1_translated.xlsx structure
-ingest_ms.py          → hardcoded to MS P&L - Office Connect_translated.xlsx structure
-ingest_group.py       → hardcoded to Group file structure (different from ITDS/MS)
+scripts/
+├── translate.py          ← FALLBACK ONLY (v2 files are natively English; run only if Finnish labels reappear)
+├── glossary.py           ← shared crosswalk & format profile: TAG_NAME aliases, CANONICAL, CODE_RE, PERIOD_RE
+├── ingest_ITDS.py        ← CURRENT (rewritten in place for format v2, 18 Jul): parses `master` sheet
+│                            → output/itds_<period>.json (107 lines @ 2026-06). v1 lives in git history.
+├── variance.py           ← variance engine, consumes the JSON contract (format-agnostic)          [to build]
+└── (Phase 2: ingest_ms_v2.py, ingest_group_v2.py)
 ```
 
-Run order each month:
-```bash
-python scripts/translate.py                    # translates all 3 files at once
-python scripts/ingest_itds.py                  # outputs output/itds_<period>.json
-python scripts/ingest_ms.py                    # outputs output/ms_<period>.json
-python scripts/ingest_group.py                 # outputs output/group_<period>.json  ← needs itds + ms first
-python scripts/variance.py                     # reads all 3 JSONs
-```
+Monthly run order (pilot): `ingest_itds_v2.py` → `variance.py`. No translation step.
 
-## Translation system design
+Architecture rule: **adapters are consumables, the canonical layer is the asset.** Business logic (variance, commentary, KB, Teams) consumes only the JSON contract / canonical IDs and must never read Excel or source labels directly. A future format/ERP change costs one new adapter + one crosswalk column — nothing else.
 
-Finnish labels must be translated to English **once, offline** before parsing. The output is a new translated Excel file written to `data/`. The parser then reads this translated file — no lookup dict needed at parse time.
+---
 
-### Pipeline (run once per new file)
+## LEGACY: format v1 notes (May 2026 and earlier — for reference only)
 
-```
-PHASE 1 — offline, run once per file
-────────────────────────────────────────────────────────
-scripts/translate.py  <input_xlsx>
-  → accepts any .xlsx file path as argument
-  → reads all Finnish labels (column B across all sheets)
-  → checks docs/glossary_finnish_english.xlsx first  ← priority (101 verified terms)
-  → for labels not in glossary → calls deep-translator (GoogleTranslator fi→en)
-  → time.sleep(0.3) between API calls to avoid rate limit
-  → writes new Excel to data/<original_stem>_translated.xlsx
-  → if no argument → processes ALL .xlsx in data/ (excluding *_translated.xlsx)
-
-PHASE 2 — runs every month
-────────────────────────────────────────────────────────
-scripts/ingest.py  <translated_xlsx>
-  → reads the translated Excel directly — English labels already in place
-  → source_cell reference always uses ORIGINAL filename (strip "_translated" suffix)
-  → never calls any translation API
-```
-
-### File naming convention
-
-| Original file | Translated output |
-|---|---|
-| `data/ITDS_PnL_officeConnect_1.1.xlsx` | `data/ITDS_PnL_officeConnect_1.1_translated.xlsx` |
-| `data/MS P&L - Office Connect.xlsx` | `data/MS P&L - Office Connect_translated.xlsx` |
-| `data/Management report...xlsx` | `data/Management report..._translated.xlsx` |
-
-### Source cell reference rule
-
-The audit trail must reference the **original** file, not the translated copy. Derive original filename by stripping `_translated` from whatever file path was passed:
-
-```python
-from pathlib import Path
-
-def original_filename(translated_path: str) -> str:
-    p = Path(translated_path)
-    return p.name.replace("_translated", "")
-
-# Example:
-# translated_path = "data/ITDS_PnL_officeConnect_1.1_translated.xlsx"
-# source_cell = "ITDS_PnL_officeConnect_1.1.xlsx!masterDataSheet!B12"
-```
-
-### translate.py — generic
-
-Accepts any `.xlsx` as argument, or scans all files in `data/` if no argument given:
-
-```bash
-python scripts/translate.py data/ITDS_PnL_officeConnect_1.1.xlsx   # one file
-python scripts/translate.py                                          # all 3 at once
-```
-
-### ingest scripts — each hardcoded to its file
-
-Each script knows exactly which file, which sheet, which rows/columns to read:
-
-```bash
-python scripts/ingest_itds.py      # always reads ITDS_PnL_officeConnect_1.1_translated.xlsx
-python scripts/ingest_ms.py        # always reads MS P&L - Office Connect_translated.xlsx
-python scripts/ingest_group.py     # always reads Management report..._translated.xlsx
-```
-
-No arguments needed — the filename is fixed inside each script. If Aurilo renames the file, update the constant at the top of the script.
-
-### Install
-
-```bash
-pip install deep-translator openpyxl
-```
-
-### Why glossary takes priority over auto-translate
-
-Financial terms auto-translate poorly. "Käyttökate" can come back as "operating margin" or "gross profit" — correct answer is "EBITDA". The existing `glossary_finnish_english.xlsx` has already been verified; use it as ground truth and fill gaps with auto-translate only.
-
-## Build order
-
-1. `scripts/translate.py` — translate Finnish labels, write `*_translated.xlsx` to `data/`
-2. `scripts/ingest.py` — parse `masterDataSheet` from translated file, output normalized JSON
-3. `scripts/variance.py` — variance engine consuming ingest output
-4. Validation layer — add to `ingest.py` before variance calculation runs
-5. Extend `ingest.py` for MS and Group files — same script, different translated files
+- Sheet `masterDataSheet`; label col A; block-header labels (`BUDGET`, `PREVIOUS FORECAST`, `KEY FIGURES`) on the row above the month row; Actuals+FC block spanned 2025+2026; hierarchy via indent (reliable in v1); Finnish labels requiring `translate.py` (glossary `docs/glossary_finnish_english.xlsx` takes priority over auto-translate — "Käyttökate" must map to "EBITDA", not Google's guess).
+- v1 ingest (`ingest_ITDS.py`) is complete and produced `output/itds_2026-05.json` (99 lines, validated). Do not extend it; format is dead.
+- Old 4-digit Finnish CoA (3654, 4000…) has **no usable mapping** to the new 3/6-digit CoA below FSLI level — cross-month history at GL-account level is not possible across the ERP boundary; FSLI level reconciles (see Crosswalk).
 
 ---
 
 ## What NOT to do
 
 - Do not use `pandas` for parsing — it loses cell coordinates. Use `openpyxl` cell-by-cell.
-- Do not open the file without `data_only=True` — formula strings instead of values.
-- Do not commit anything in `data/` to git.
-- Do not send raw Finnish labels or customer names to the LLM API.
-- LLM payloads must be **whitelist-built** (explicit list of allowed fields), never blacklist-filtered: `name_fi`, `source_file`/`source_sheet`/`source_row`/`source_col_*`, and any line whose label contains an external counterparty name (e.g. "MPY Yrityspalvelut") never leave the machine. `name_fi` and `source_*` stay in the local JSONs for audit — the filter lives in the LLM payload builder, not in ingest/variance.
-- Do not hardcode column positions — always scan for the header row first.
+- Do not open files without `data_only=True`.
+- Do not commit anything in `data/` (or client `.docx` files) to git.
+- Do not send raw Finnish labels or customer/counterparty names to the LLM API.
+- LLM payloads must be **whitelist-built** (explicit list of allowed fields), never blacklist-filtered: `source_*` fields and any line whose label contains an external counterparty name never leave the machine. The filter lives in the LLM payload builder, not in ingest/variance.
+- Do not hardcode row/column positions — locate by scanning anchors (tags, datetimes, labels) with alias sets.
+- Do not trust indent for hierarchy in v2 account-detail zones — derive from account-code structure.
+- Do not key business logic on source labels — key on `canonical_id`.
+- Do not read figures from the Group workbook without unit conversion (k€) while it remains unconverted.
 
 ---
 
-## Reference docs (in `docs/`)
+## Reference docs
 
 | File | Purpose |
 |---|---|
-| `itds_excel_guide.md` | Detailed ITDS sheet inventory, column mapping, parsing pitfalls |
-| `ms_group_excel_guide.md` | MS and Group file structure (needs verification) |
-| `financial_policy.md` | Variance thresholds, commentary standards, Finnish glossary |
-| `business_review_template.md` | PPTX slide structure and placeholder map |
-| `system_architecture.md` | Full 6-component architecture |
-| `data_pipeline.md` | Non-AI pipeline steps (Steps 1–4) |
-| `project_plan_aurilo_ai_agent.md` | 10-week project plan, milestones, team roles |
+| `Aurilo_LLM_Teams_Dependency_Details.docx` | dependency request sent to Aurilo (LLM, Teams, owner mapping, KB) |
+| `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` | scope response (v1.0, 8 Jul 2026) |
+| `Closing_Variance_AI_Agent_Brief.docx` | client brief — §9 thresholds, §15 MVP definition |
+| `Meeting_Notes_070726.docx` | 7 Jul meeting outcomes |
+| `docs/glossary_finnish_english.xlsx` | FI→EN glossary (legacy/fallback) |
+| `docs/*.md` | itds_excel_guide, financial_policy, business_review_template, system_architecture, data_pipeline, project_plan (NOTE: written for format v1 — verify against v2 before relying on them) |
