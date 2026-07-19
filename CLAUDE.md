@@ -167,9 +167,9 @@ Every figure carries its source cell reference. `name_fi` was dropped for v2 (fi
 **Primary comparison: `cur_fc` vs `pre_fc`** (CY vs Prior FC — semantics confirmed). Budget/LY comparisons: compute if data present, but pilot flagging is driven only by the forecast comparison.
 
 ```python
-vs_pre_fc_abs = cur_fc - pre_fc
+vs_pre_fc_eur = cur_fc - pre_fc
 vs_pre_fc_pct = (cur_fc - pre_fc) / abs(pre_fc) if pre_fc else None   # ← pilot primary
-vs_budget_abs / vs_budget_pct — informational when budget present
+vs_budget_eur / vs_budget_pct — informational when budget present
 ```
 
 **Flagging — brief §9 thresholds, OR logic (any breached rule flags):**
@@ -187,7 +187,7 @@ EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
 
 - Flag/rank **`ebita` only, not `bu_profit`** — they are identical at BU level (confirmed); flagging both duplicates the same mover.
 - Customer-revenue €15k and recurring-variance (≥2 consecutive months) rules are Phase 2.
-- **Output ranking:** full flagged list + top 5–10 by `abs(vs_pre_fc_abs)` (`top_movers` + per-line `rank`).
+- **Output ranking:** full flagged list + top 5–10 by `abs(vs_pre_fc_eur)` (`top_movers` + per-line `rank`).
 
 ---
 
@@ -200,6 +200,7 @@ EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
 - Parsed line count below sanity floor → raise (v2 baseline: 107 lines @ 2026-06 → floor 65; legacy v1 baseline was 99/60).
 - **Semantic reconciliation (format-independent safety net):** for closed months, cross-check a couple of FSLIs against the Group workbook's precomputed `Differences` block (scale-adjusted) when available; and `cur_fc ≠ pre_fc` on at least some lines (guards against resolving both to the same block).
 - Unit-scale guard if reading the Group workbook: values ÷1000 vs BU file → convert or raise.
+- **DEFERRED — expected-period (staleness) guard:** variance `__main__` picks the latest `{bu}_*.json` by filename sort; if ingest failed that month, it silently reprocesses the previous period. Today's mitigation: the loop prints the period being processed (human check). Once Aurilo confirms the monthly refresh schedule (owner/day — open question in `Aurilo_Finance_Meeting_Questions.docx` §C), add a hard `latest period == expected period` check. TODO marker sits in `variance.py __main__`.
 
 ---
 
@@ -217,7 +218,7 @@ EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
       "canonical_id": "revenue",
       "cur_fc": 8369966.06,
       "pre_fc": 8290000.0,
-      "vs_pre_fc_abs": 79966.06,
+      "vs_pre_fc_eur": 79966.06,
       "vs_pre_fc_pct": 0.0096,
       "flagged": true,
       "rank": 2,

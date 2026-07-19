@@ -4,6 +4,7 @@ from deep_translator import GoogleTranslator
 import time
 import re
 from pathlib import Path
+import sys
 #map glossary to dict
 wb_glossary = load_workbook("docs/glossary_finnish_english.xlsx")
 ws_glossary = wb_glossary['Glossary FI-EN']
@@ -53,4 +54,16 @@ def translate_file(path: Path):
                 else:
                     continue
     wb.save(path.parent / (path.stem+"_translated"+path.suffix))
-
+#CLI command to translate the files
+if __name__ == "__main__":
+    if len(sys.argv) > 1:
+        for arg in sys.argv[1:]:
+            print(f"Translating {arg} ...")
+            translate_file(arg)
+    else:
+        for f in Path("data").glob("*.xlsx"):
+            if f.stem.endswith("_translated") or f.name.startswith("~$"):
+                continue
+            print(f"Translating {f.name} ...")
+            translate_file(f)
+    print("Done.")

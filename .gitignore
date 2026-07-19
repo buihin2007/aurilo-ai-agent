@@ -3,10 +3,11 @@ data/
 *.xlsx
 *.xls
 *.pptx
+*.docx
 
 # IDE & Local customization
 .claude/
-
+*.docx
 # Environment
 .env
 venv/
