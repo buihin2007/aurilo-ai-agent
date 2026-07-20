@@ -1,5 +1,6 @@
 # Aurilo data files - NEVER commit
 data/
+output/
 *.xlsx
 *.xls
 *.pptx
