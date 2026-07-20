@@ -44,7 +44,7 @@ Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.doc
 
 **Explicitly OUT of scope (Phase 2):** MS, Group, Group F, OTI processing; customer / cost-centre / service-area / project dimensions; Business Controller validation gate and confidence-based routing (brief §7–8); governance (brief §14); budget/LY-based flagging.
 
-**Blocking dependencies from Aurilo** (detailed in `Aurilo_LLM_Teams_Dependency_Details.docx`):
+**Blocking dependencies from Aurilo** (detailed in `Aurilo_Dependencies_and_Open_Questions.docx`):
 | Dependency | Needed for | Status |
 |---|---|---|
 | Internal LLM access (2 deployments: mini + flagship; embedding flagged for Phase 2) | Draft commentary | requested |
@@ -175,19 +175,21 @@ vs_budget_eur / vs_budget_pct — informational when budget present
 **Flagging — brief §9 thresholds, OR logic (any breached rule flags):**
 
 ```python
-MATERIALITY = {
-    "abs_eur": 25_000, "pct": 0.10,
+MATERIALITY_THRESHOLD = {
+    "pnl_eur": 25_000, "pnl_pct": 0.10,
     "gross_margin_eur": 10_000, "expense_eur": 10_000, "ebita_eur": 20_000,
 }
-# line-type rules key on canonical_id:
-GROSS_MARGIN_LINES = {"gross_margin"}
-EXPENSE_LINES      = {"cogs", "opex", "personnel", "depreciation"}
-EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
+# line-type rules key on canonical_id (as implemented in variance.py):
+GROSS_MARGIN_OBJECTS = {"gross_margin"}
+EXPENSE_OBJECTS      = {"cogs", "opex", "personnel", "other_opex", "depreciation"}
+EBITA_OBJECTS        = {"ebita"}   # Operative EBITA — confirmed §9 target
+NO_FLAG              = {"bu_profit"}   # == ebita at BU level; flagging both duplicates the mover
 ```
 
-- Flag/rank **`ebita` only, not `bu_profit`** — they are identical at BU level (confirmed); flagging both duplicates the same mover.
+- Flag/rank **`ebita` only, not `bu_profit`** — they are identical at BU level (confirmed); `NO_FLAG` suppresses the duplicate.
 - Customer-revenue €15k and recurring-variance (≥2 consecutive months) rules are Phase 2.
-- **Output ranking:** full flagged list + top 5–10 by `abs(vs_pre_fc_eur)` (`top_movers` + per-line `rank`).
+- **Output ranking:** flagged **FSLI lines only** (`RANK_LINE_TYPES = {"fsli"}`) by `abs(vs_pre_fc_eur)`, top `NUM_TOP_MOVERS = 10` → `top_movers` (names, rank order) + per-line `rank` (None off the podium). Detail lines keep their `flagged` value but are never ranked.
+- **Known noise, decision deferred:** the 10% rule with no size floor flags many small detail accounts (64/107 flagged @ 2026-06; e.g. €954 / −24%). Proposed fix — de-minimis floor on the pct rule (`PCT_FLOOR_EUR ≈ 5k`) — parked until Aurilo confirms; §9 runs as written meanwhile. Top movers are unaffected (FSLI-only).
 
 ---
 
@@ -200,17 +202,17 @@ EBITA_LINES        = {"ebita"}     # Operative EBITA — confirmed §9 target
 - Parsed line count below sanity floor → raise (v2 baseline: 107 lines @ 2026-06 → floor 65; legacy v1 baseline was 99/60).
 - **Semantic reconciliation (format-independent safety net):** for closed months, cross-check a couple of FSLIs against the Group workbook's precomputed `Differences` block (scale-adjusted) when available; and `cur_fc ≠ pre_fc` on at least some lines (guards against resolving both to the same block).
 - Unit-scale guard if reading the Group workbook: values ÷1000 vs BU file → convert or raise.
-- **DEFERRED — expected-period (staleness) guard:** variance `__main__` picks the latest `{bu}_*.json` by filename sort; if ingest failed that month, it silently reprocesses the previous period. Today's mitigation: the loop prints the period being processed (human check). Once Aurilo confirms the monthly refresh schedule (owner/day — open question in `Aurilo_Finance_Meeting_Questions.docx` §C), add a hard `latest period == expected period` check. TODO marker sits in `variance.py __main__`.
+- **DEFERRED — expected-period (staleness) guard:** variance `__main__` picks the latest `{bu}_*.json` by filename sort; if ingest failed that month, it silently reprocesses the previous period. Today's mitigation: the loop prints the period being processed (human check). Once Aurilo confirms the monthly refresh schedule (owner/day — open question in `Aurilo_Dependencies_and_Open_Questions.docx` §D, plus the expected-period rule §E6), add a hard `latest period == expected period` check. TODO marker sits in `variance.py __main__`.
 
 ---
 
-## Output format (`variance.json`)
+## Output format (`variance_<bu>_<period>.json`)
 
 ```json
 {
   "period": "2026-06",
   "business_unit": "ITDS",
-  "materiality": { "abs_eur": 25000, "pct": 0.10, "gross_margin_eur": 10000, "expense_eur": 10000, "ebita_eur": 20000 },
+  "materiality": { "pnl_eur": 25000, "pnl_pct": 0.10, "gross_margin_eur": 10000, "expense_eur": 10000, "ebita_eur": 20000 },
   "top_movers": ["Cost of Goods Sold", "Total Revenue"],
   "objects": [
     {
@@ -241,11 +243,13 @@ scripts/
 ├── glossary.py           ← shared crosswalk & format profile: TAG_NAME aliases, CANONICAL, CODE_RE, PERIOD_RE
 ├── ingest_ITDS.py        ← CURRENT (rewritten in place for format v2, 18 Jul): parses `master` sheet
 │                            → output/itds_<period>.json (107 lines @ 2026-06). v1 lives in git history.
-├── variance.py           ← variance engine, consumes the JSON contract (format-agnostic)          [to build]
+├── variance.py           ← DONE (19 Jul): variance engine, consumes the JSON contract (format-agnostic).
+│                            run() per input file; __main__ loops BU_PREFIXES, picks latest {bu}_*.json,
+│                            skips BUs without ingest → output/variance_{bu}_{period}.json
 └── (Phase 2: ingest_ms_v2.py, ingest_group_v2.py)
 ```
 
-Monthly run order (pilot): `ingest_itds_v2.py` → `variance.py`. No translation step.
+Monthly run order (pilot): `ingest_ITDS.py` → `variance.py`. No translation step.
 
 Architecture rule: **adapters are consumables, the canonical layer is the asset.** Business logic (variance, commentary, KB, Teams) consumes only the JSON contract / canonical IDs and must never read Excel or source labels directly. A future format/ERP change costs one new adapter + one crosswalk column — nothing else.
 
@@ -277,7 +281,7 @@ Architecture rule: **adapters are consumables, the canonical layer is the asset.
 
 | File | Purpose |
 |---|---|
-| `Aurilo_LLM_Teams_Dependency_Details.docx` | dependency request sent to Aurilo (LLM, Teams, owner mapping, KB) |
+| `Aurilo_Dependencies_and_Open_Questions.docx` | **master doc for the joint IT+Finance meeting (v1.2)** — access deps (LLM, Teams, owner mapping, KB) + open data/process/methodology questions (account→FSLI mapping, DM/NCA & OTI, variance §9 decisions, template housekeeping). Absorbed the former `Aurilo_Finance_Meeting_Questions.docx`. |
 | `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.docx` | scope response (v1.0, 8 Jul 2026) |
 | `Closing_Variance_AI_Agent_Brief.docx` | client brief — §9 thresholds, §15 MVP definition |
 | `Meeting_Notes_070726.docx` | 7 Jul meeting outcomes |
