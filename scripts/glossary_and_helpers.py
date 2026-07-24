@@ -1,5 +1,16 @@
 # glossary shared by all BU ingests
 import re
+import json
+
+#prefixes
+BU_PREFIXES = ["itds","ms","group"]
+
+#shared helper for payload and questions, return record and rank movers
+def get_ranked_movers(variance_path):
+    with open(variance_path, encoding="utf-8") as file:
+        record = json.load(file)
+    movers = [o for o in record["objects"] if o["rank"] is not None]
+    return record, sorted(movers, key=lambda o: o["rank"])
 #all possible name of some tags:
 TAG_NAME = {   
     "cur_fc": {"CY"},

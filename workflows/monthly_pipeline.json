@@ -1,0 +1,113 @@
+{
+  "name": "My workflow",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "seconds",
+              "secondsInterval": 1
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        0,
+        0
+      ],
+      "id": "330541ad-384b-4352-b01f-4245dd93c3d3",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\Users\\HP\\aurilo-ai-agent && C:\\Users\\HP\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\ingest_ITDS.py\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "afd88049-5e7a-4353-afa1-175b2a3f18be",
+      "name": "Run Ingest_ITDS"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\Users\\HP\\aurilo-ai-agent && C:\\Users\\HP\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\variance.py\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        384,
+        16
+      ],
+      "id": "4dd02499-9bb7-41b2-bdc7-3e9377afb1c5",
+      "name": "Run Variance.py"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\Users\\HP\\aurilo-ai-agent && C:\\Users\\HP\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\build_payload.py\n\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        544,
+        16
+      ],
+      "id": "2e720214-8977-479c-9933-793491041ff2",
+      "name": "Run Build Payload"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Ingest_ITDS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Ingest_ITDS": {
+      "main": [
+        [
+          {
+            "node": "Run Variance.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Variance.py": {
+      "main": [
+        [
+          {
+            "node": "Run Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "5fac7eb8-8f52-4da3-9778-41a50396afa6",
+  "meta": {
+    "instanceId": "e1a2a93986315dd00eea9893913e275a12e843f7d0e6aa1c1b51c081ae17d51b"
+  },
+  "nodeGroups": [],
+  "id": "k1ReRmsganzrVqGm",
+  "tags": []
+}

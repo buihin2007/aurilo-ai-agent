@@ -1,7 +1,8 @@
 import openpyxl
 from typing import Optional
 import datetime
-from glossary import TAG_NAME, CANONICAL, BUDGET_TAG_RE, CODE_RE, PERIOD_RE
+from pathlib import Path
+from glossary_and_helpers import TAG_NAME, CANONICAL, BUDGET_TAG_RE, CODE_RE, PERIOD_RE
 from openpyxl.utils import get_column_letter
 import json
 from dataclasses import asdict
@@ -164,8 +165,8 @@ def create_pnl_object(ws, data_start_from, period, label_col, cur_fc_col, budget
 def validate(pnl_objects, period):
     if not pnl_objects:
         raise ValueError(f"No PnL objects for period {period}.")
-    if len(pnl_objects) < 40:
-        raise ValueError(f"{len(pnl_objects)} out of 40 lines parsed, layout may have changed.")
+    if len(pnl_objects) < 65:
+        raise ValueError(f"Only {len(pnl_objects)} lines parsed, layout may have changed.")
     for object in pnl_objects:
         if object.line_type == "fsli" and (object.cur_fc is None or object.pre_fc is None):
             raise ValueError(f"Error in cur_fc and pre_fc on object '{object.name}' (row {object.source_row}): cur_fc = {object.cur_fc}, pre_fc = {object.pre_fc}.")
@@ -183,7 +184,8 @@ def write_json(pnl_objects, period):
         "business_unit": "ITDS",
         "objects": [asdict(object) for object in pnl_objects],
     }
-    output_path = f"output/itds_{period}.json"
+    output_path = f"output/ingest/itds_{period}.json"
+    Path("output/ingest").mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding = "utf-8") as file:
         json.dump(record, file, ensure_ascii=False, indent =2)
     print(f"Wrote {len(pnl_objects)} objects to {output_path}.")
@@ -192,7 +194,11 @@ def write_json(pnl_objects, period):
 
 if __name__ == "__main__":
     # load workbooks
-    wb = openpyxl.load_workbook("data/copy NEW_ITDS_PnL_officeConnect_v1.xlsx", data_only=True)
+    files = sorted(Path("data/itds").glob("*.xlsx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    if not files:
+        raise FileNotFoundError("No .xlsx file found in data/itds/ — place this month's ITDS export there first.")
+    source_file = files[0].name
+    wb = openpyxl.load_workbook(files[0], data_only=True)
     ws = find_sheet(wb, "master")
    
     # locate rows, column, find pre_fc, prior_fc, budget:
@@ -204,7 +210,7 @@ if __name__ == "__main__":
     budget_col = find_month_col(ws, tag_row, month_row, TAG_NAME["budget"], period, BUDGET_TAG_RE)
     pre_fc_col = find_month_col(ws, tag_row, month_row, TAG_NAME["pre_fc"], period)
     pnl_objects = create_pnl_object(ws, data_start_from, period, label_col,
-                                    cur_fc_col, budget_col, pre_fc_col, "copy NEW_ITDS_PnL_officeConnect_v1.xlsx")
+                                    cur_fc_col, budget_col, pre_fc_col, source_file)
     validate(pnl_objects, period)
     write_json(pnl_objects, period)
 

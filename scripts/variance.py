@@ -1,7 +1,6 @@
 import json
 from pathlib import Path
-
-BU_PREFIXES = ["itds","ms","group"]
+from glossary_and_helpers import BU_PREFIXES
 
 MATERIALITY_THRESHOLD = {"pnl_eur": 25000, "pnl_pct": 0.10, "gross_margin_eur":10000
                          , "expense_eur": 10000, "ebita_eur": 20000}
@@ -73,7 +72,8 @@ def write_output(data, objects):
         "objects": objects,
     }
     bu = data["business_unit"].lower()
-    output_path = f"output/variance_{bu}_{data['period']}.json"
+    output_path = f"output/variance/{bu}_{data['period']}.json"
+    Path("output/variance").mkdir(parents=True, exist_ok=True)
     with open(output_path, "w", encoding="utf-8") as file:
         json.dump(record, file, ensure_ascii=False, indent=2)
     num_flagged = sum(1 for object in objects if object["flagged"])
@@ -85,9 +85,8 @@ def run(input_path):
     return write_output(data, objects)
 
 if __name__ == "__main__":
-    # TODO: staleness guard once Aurilo confirms the monthly refresh schedule
     for bu in BU_PREFIXES:
-        files = sorted(Path("output").glob(f"{bu}_*.json"), reverse=True)
+        files = sorted(Path("output/ingest").glob(f"{bu}_*.json"), reverse=True)
         if not files:
             print(f"{bu}: no ingest file found, skipped.")
             continue

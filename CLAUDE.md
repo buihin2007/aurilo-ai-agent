@@ -2,9 +2,9 @@
 
 ## What this project is
 
-An AI agent that automates monthly financial commentary for Aurilo Group (Finnish IT company — Tietokeskus/Enfo brands). The agent reads Excel exports from Workday Adaptive Planning, calculates variances, generates English commentary via LLM, and produces a draft Business Review PPTX.
+An AI agent that automates monthly financial commentary for Aurilo Group (Finnish IT company — Tietokeskus/Enfo brands). The agent reads Excel exports from Workday Adaptive Planning, calculates variances, and generates English commentary via LLM as a draft for Finance review. Draft delivery format (file, email, channel link — and whether it needs to be a formatted document at all) is an open question with Aurilo (see `Aurilo_Dependencies_and_Open_Questions.docx` §D); not committing to a report-generation library until that's answered.
 
-**Stack:** Python (data processing) + n8n (orchestration + AI agents) + ChromaDB (RAG) + python-pptx (report output)
+**Stack:** Python (data processing) + n8n (orchestration + AI agents) + ChromaDB (RAG)
 **Scope:** Prototype only — runs locally on tech lead's laptop (internal decision — disclosed to Aurilo in the dependency document, awaiting explicit data-policy confirmation), not production-ready
 **Data:** Real Aurilo data, processed locally. Only aggregated figures sent to LLM API.
 
@@ -55,14 +55,16 @@ Per the scope response `Aurilo_Closing_Variance_Agent_Scope_and_Dependencies.doc
 
 ---
 
-## Input files (in `data/` — never commit to git)
+## Input files (in `data/<bu>/` — never commit to git)
+
+Each BU has its own subfolder (`data/itds/`, `data/ms/`, `data/group/`) so ingest scripts glob `*.xlsx` scoped to their BU without risk of picking up another BU's file. Each ingest script's `__main__` picks the most-recently-modified `.xlsx` in its BU folder (`key=lambda f: f.stat().st_mtime, reverse=True`) — place the new month's export in the right subfolder before running; old exports can stay (only the newest by mtime is read).
 
 **Current (format v2, June 2026 onward):**
-| File | Unit | Sheet | Role |
-|---|---|---|---|
-| `copy NEW_ITDS_PnL_officeConnect_v1.xlsx` | ITDS | `master` | **pilot source of truth** |
-| `MS P&L - Office Connect_NEW.xlsx` | MS | `MASTER` | Phase 2 |
-| `copy Aurilo Group office connect.xlsx` | all BUs | `Master Group/ITDS/MS/Group F/OTI` | reference/cross-check only (NOT authoritative; currently in k€; has precomputed `Differences` variance block usable as an oracle) |
+| File | Folder | Unit | Sheet | Role |
+|---|---|---|---|---|
+| `copy NEW_ITDS_PnL_officeConnect_v1.xlsx` | `data/itds/` | ITDS | `master` | **pilot source of truth** |
+| `MS P&L - Office Connect_NEW.xlsx` | `data/ms/` | MS | `MASTER` | Phase 2 |
+| `copy Aurilo Group office connect.xlsx` | `data/group/` | all BUs | `Master Group/ITDS/MS/Group F/OTI` | reference/cross-check only (NOT authoritative; currently in k€; has precomputed `Differences` variance block usable as an oracle) |
 
 **LEGACY (format v1, May 2026 and earlier) — do not build on; keep only for historical reconciliation:**
 `copy ITDS_PnL_officeConnect_1.1.xlsx` (+ `_translated`), `copy MS P&L - Office Connect.xlsx`, `copy Management report 2026 pohja Group ja Group Functions.xlsx`.
@@ -189,7 +191,7 @@ NO_FLAG              = {"bu_profit"}   # == ebita at BU level; flagging both dup
 - Flag/rank **`ebita` only, not `bu_profit`** — they are identical at BU level (confirmed); `NO_FLAG` suppresses the duplicate.
 - Customer-revenue €15k and recurring-variance (≥2 consecutive months) rules are Phase 2.
 - **Output ranking:** flagged **FSLI lines only** (`RANK_LINE_TYPES = {"fsli"}`) by `abs(vs_pre_fc_eur)`, top `NUM_TOP_MOVERS = 10` → `top_movers` (names, rank order) + per-line `rank` (None off the podium). Detail lines keep their `flagged` value but are never ranked.
-- **Known noise, decision deferred:** the 10% rule with no size floor flags many small detail accounts (64/107 flagged @ 2026-06; e.g. €954 / −24%). Proposed fix — de-minimis floor on the pct rule (`PCT_FLOOR_EUR ≈ 5k`) — parked until Aurilo confirms; §9 runs as written meanwhile. Top movers are unaffected (FSLI-only).
+- **Known noise, CONFIRMED by Aurilo (22 Jul 2026, Finance rep):** the 10% rule with no size floor flags many small detail accounts (64/107 flagged @ 2026-06; e.g. €954 / −24%). Aurilo's answer to E2: "all outliers are equally important and will therefore be reviewed manually if AI does not handle them" — no de-minimis floor. §9 runs exactly as written, permanently — the de-minimis floor idea is rejected, not just parked. Top movers are unaffected either way (FSLI-only).
 
 ---
 
