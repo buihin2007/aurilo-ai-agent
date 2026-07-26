@@ -82,7 +82,8 @@ def write_output(data, objects):
 def run(input_path):
     data = load_input(input_path)
     objects = rank_movers(apply_flags(compute(data["objects"])))
-    return write_output(data, objects)
+    write_output(data, objects)
+    return objects
 
 if __name__ == "__main__":
     for bu in BU_PREFIXES:
@@ -91,4 +92,7 @@ if __name__ == "__main__":
             print(f"{bu}: no ingest file found, skipped.")
             continue
         print(f"{bu}: processing {files[0].name}")
-        run(files[0])
+        objects = run(files[0])
+        ranked = sorted((o for o in objects if o["rank"] is not None), key=lambda o: o["rank"])
+        for o in ranked:
+            print(f"  #{o['rank']} {o['name']}: {o['vs_pre_fc_eur']:+,.0f}")

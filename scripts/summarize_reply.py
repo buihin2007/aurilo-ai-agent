@@ -1,6 +1,19 @@
 from pathlib import Path
 import sys
+import os
 import json
+from dotenv import load_dotenv
+from openai import AzureOpenAI
+
+# Real key/endpoint live in .env (already git-ignored) — never hardcode here.
+load_dotenv()
+AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
+
+client = AzureOpenAI(
+    api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
+    api_version="2024-02-01",
+    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
+)
 
 def load_reply_input(path):
     with open(path, encoding="utf-8") as file:
@@ -12,13 +25,30 @@ def load_reply_input(path):
     return reply_input
 
 def call_llm(question, reply_text):
-    # TODO: replace with real Azure OpenAI (mini deployment) call once the API key/endpoint exist.
-    # For now, pass the reply through unchanged so the rest of the pipeline is testable.
-    return reply_text.strip()
+    response = client.chat.completions.create(
+        model=AZURE_OPENAI_DEPLOYMENT,
+        messages=[
+            {"role": "system", "content": (
+                "You review a Finance owner's reply explaining a P&L variance. "
+                "Return JSON with two fields: \"answer_clean\" (a short, factual "
+                "one-sentence summary of the reply, no speculation) and "
+                "\"is_relevant\" (true if the reply actually answers the question "
+                "asked, false if it looks off-topic or unrelated)."
+            )},
+            {"role": "user", "content": f"Question: {question}\nReply: {reply_text}"},
+        ],
+        temperature=0.2,
+        response_format={"type": "json_object"},
+    )
+    return json.loads(response.choices[0].message.content)
 
 def summarize_reply(reply_input):
-    answer_clean = call_llm(reply_input["question"], reply_input["reply_text"])
-    return {**reply_input, "answer_clean": answer_clean}
+    result = call_llm(reply_input["question"], reply_input["reply_text"])
+    return {
+        **reply_input,
+        "answer_clean": result["answer_clean"],
+        "needs_review": not result["is_relevant"],
+    }
 
 if __name__ == "__main__":
     if len(sys.argv) != 2:
