@@ -18,7 +18,14 @@ TAG_NAME = {
     "budget": {"BUD", "BUDGET"},                        
     "ly": {"LY"},
 }
-
+#group owners to remind:
+def group_by_owner(questions):
+    groups = {}
+    for q in questions:
+        email = q["owner_email"]
+        groups.setdefault(email, {"owner_name": q["owner_name"], "lines": []})
+        groups[email]["lines"].append(q)
+    return groups
 #match Bud26 and so on:
 BUDGET_TAG_RE = re.compile(r"^BUD\d\d$")   
 
