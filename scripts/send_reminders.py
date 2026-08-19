@@ -1,5 +1,5 @@
 from pathlib import Path
-from glossary_and_helpers import group_by_owner, BU_PREFIXES
+from glossary_and_helpers import BU_PREFIXES
 import json
 
 def load_threads(path):
@@ -8,18 +8,30 @@ def load_threads(path):
     for key in {"period", "business_unit", "threads"}:
         if not threads.get(key):
             raise ValueError(f"{path}: missing or empty field: '{key}'")
+    for thread in threads["threads"]:
+        for key in ("message_id", "has_reply"):
+            if key not in thread:
+                raise ValueError(f"{path}: thread '{thread.get('name')}' missing field: '{key}'")
     return threads
 def build_reminders(threads_path):
     threads = load_threads(threads_path)
-    unans_groups = group_by_owner([thread for thread in threads["threads"] if not thread["has_reply"]])
     reminders = []
-    for email, unans_group in unans_groups.items():
-        questions = "\n".join(f"- {line['question']}" for line in unans_group["lines"])
-        reminder_text = f"Reminder — still waiting for your reply on:\n{questions}"
+    #one reminder per unanswered line, posted as a reply inside that line's own
+    #Teams conversation — a reply belongs to exactly one message_id, so these
+    #cannot be grouped per owner. Replying in-thread is also what lets the poller
+    #pick the answer up: GET /messages/{id}/replies only sees replies under {id}.
+    for thread in threads["threads"]:
+        if thread["has_reply"]:
+            continue
         reminders.append({
-            "owner_name": unans_group["owner_name"],
-            "owner_email": email,
-            "reminder_text": reminder_text
+            "canonical_id": thread["canonical_id"],
+            "name": thread["name"],
+            "question": thread["question"],
+            "owner_name": thread["owner_name"],
+            "owner_email": thread["owner_email"],
+            "message_id": thread["message_id"],
+            "reminder_text": (f"Reminder — {thread['owner_name']}, still waiting for your "
+                              f"reply on {thread['name']}."),
         })
     return {
         "period": threads["period"],

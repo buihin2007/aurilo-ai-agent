@@ -114,7 +114,7 @@ Row 6+: data rows
 - **Hierarchy comes from account codes, NOT indent**: 6-digit code = leaf GL account, 3-digit code = account group (parent of same-prefix 6-digit codes), no code = FSLI / zone header / split line. Indent is **unreliable** (COGS Accounts zone has 18 coded accounts at indent 0). Indent may still be consulted in the P&L summary zone only.
 - **Line typing matters** (account dimension mixes member types): FSLI (flag/rank targets), account group, leaf GL account, calculated `%` lines (exclude), statistical FTE lines (exclude from monetary variance), split/dimensional lines, section headers (parse anchors only).
 - **Units**: BU standalone files in euros. Group workbook in thousands (k€) until Aurilo changes it — scale-check in validation if it is ever read.
-- Labels are **natively English** in v2 — no translation step needed. `translate.py` is retained as a fallback ONLY if Finnish labels ever reappear (check before running: Google-translating English text is wasteful and risky).
+- Labels are **natively English** in v2 — no translation step needed. `translate.py` was removed (19 Aug 2026) along with `docs/`; if Finnish labels ever reappear, recover it from git history rather than rewriting it.
 
 ### How to locate values — never hardcode positions
 
@@ -152,6 +152,12 @@ class PnLLine:
     parent: Optional[str]       # account-group CODE prefix (semantic grouping key) — NOT guaranteed
                                 # to match a parsed row (e.g. group 470 has no row); never dereference
                                 # without a guard. is_subtotal was dropped: use line_type == "fsli".
+    fsli_area: Optional[str]    # canonical_id of the FSLI this line rolls up to, resolved at ingest
+                                # from Adaptive's account master (`data/Accounts*.xlsx`, "Rolls Up To").
+                                # An FSLI is its own area. Detail lines inherit their area's owner
+                                # (Aurilo owner mapping C1). None for offering / revenue-class split
+                                # lines — they roll up to Sales_offering / Sales Revenue class, not
+                                # to an FSLI. 85/107 lines resolved @ 2026-06.
     # audit — non-negotiable
     source_file: str
     source_sheet: str           # "master"
@@ -237,11 +243,40 @@ Ingest writes `output/itds_<period>.json` (same `objects` key); files are period
 
 ---
 
+## Threads contract (`output/threads/<bu>_<period>.json`)
+
+The only file both n8n workflows share. Workflow 1 (monthly) creates it; workflow 2 (twice daily) re-reads and rewrites it as replies arrive. **The full field set is fixed at creation — workflow 2 changes values, never adds or removes keys.**
+
+```json
+{
+  "period": "2026-06",
+  "business_unit": "ITDS",
+  "threads": [
+    {
+      "name": "Operative Expenses",
+      "canonical_id": "opex",
+      "question": "Operative Expenses was €1,097,221 below Prior FC (-52.6%) - what was the reason behind?",
+      "owner_name": "Marko Aikio",
+      "owner_email": "marko.aikio@aurilo.fi",
+      "message_id": "1786218176970",
+      "posted_date": "2026-08-08T19:42:56.97Z",
+      "has_reply": false
+    }
+  ]
+}
+```
+
+- `has_reply` is initialised `false` by workflow 1, so `send_reminders.py` works before workflow 2 has ever run. Only workflow 2 writes it.
+- `message_id` / `posted_date` come from the Graph API response and are **irrecoverable** — losing them orphans the posted Teams messages, so no reply can ever be matched back. Treat this file as the audit record of what was asked.
+- Reply **content** does not live here — it is written per reply to `output/replies_raw/<bu>_<canonical_id>_<period>.json` (append-only, one file per LLM call), then summarised into `output/kb_entries/`. Those payloads carry `message_id` so KB entries join back to the thread.
+- n8n rules learned the hard way: the Set nodes that touch threads must use **Include Other Input Fields** and set only `has_reply` (re-mapping every field by hand is what wrote literal `$('...')` strings into the file); and `Convert to File` must run in **Each Item to Separate File** mode, or the file is wrapped in a JSON array and every consumer breaks.
+
+---
+
 ## Scripts & run order
 
 ```
 scripts/
-├── translate.py          ← FALLBACK ONLY (v2 files are natively English; run only if Finnish labels reappear)
 ├── glossary.py           ← shared crosswalk & format profile: TAG_NAME aliases, CANONICAL, CODE_RE, PERIOD_RE
 ├── ingest_ITDS.py        ← CURRENT (rewritten in place for format v2, 18 Jul): parses `master` sheet
 │                            → output/itds_<period>.json (107 lines @ 2026-06). v1 lives in git history.

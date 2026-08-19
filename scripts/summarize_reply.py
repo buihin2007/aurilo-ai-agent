@@ -3,17 +3,27 @@ import sys
 import os
 import json
 from dotenv import load_dotenv
-from openai import AzureOpenAI
+from openai import OpenAI
 
 # Real key/endpoint live in .env (already git-ignored) — never hardcode here.
+# PILOT ONLY: pointed at DeepSeek for the blind test. When Aurilo provide an
+# Azure OpenAI deployment, this becomes AzureOpenAI(api_key, api_version,
+# azure_endpoint) and the model becomes their deployment name.
 load_dotenv()
-AZURE_OPENAI_DEPLOYMENT = os.getenv("AZURE_OPENAI_DEPLOYMENT", "")
 
-client = AzureOpenAI(
-    api_key=os.getenv("AZURE_OPENAI_API_KEY", ""),
-    api_version="2024-02-01",
-    azure_endpoint=os.getenv("AZURE_OPENAI_ENDPOINT", ""),
-)
+def require_env(name):
+    """Fail with the variable name rather than letting the provider return an
+    opaque error later — n8n does not surface stdout, only the exit code."""
+    value = os.getenv(name, "").strip()
+    if not value:
+        raise ValueError(f"missing or empty environment variable: '{name}' (check .env)")
+    return value
+
+def get_client():
+    return OpenAI(
+        api_key=require_env("DEEPSEEK_API_KEY"),
+        base_url=os.getenv("DEEPSEEK_BASE_URL", "https://api.deepseek.com"),
+    )
 
 def load_reply_input(path):
     with open(path, encoding="utf-8") as file:
@@ -25,15 +35,16 @@ def load_reply_input(path):
     return reply_input
 
 def call_llm(question, reply_text):
-    response = client.chat.completions.create(
-        model=AZURE_OPENAI_DEPLOYMENT,
+    response = get_client().chat.completions.create(
+        model=require_env("DEEPSEEK_MINI_MODEL"),
         messages=[
             {"role": "system", "content": (
                 "You review a Finance owner's reply explaining a P&L variance. "
                 "Return JSON with two fields: \"answer_clean\" (a short, factual "
-                "one-sentence summary of the reply, no speculation) and "
-                "\"is_relevant\" (true if the reply actually answers the question "
-                "asked, false if it looks off-topic or unrelated)."
+                "one-sentence summary of the reply, no speculation — wrap the "
+                "single key driver phrase, e.g. the root cause, in **markdown "
+                "bold**) and \"is_relevant\" (true if the reply actually answers "
+                "the question asked, false if it looks off-topic or unrelated)."
             )},
             {"role": "user", "content": f"Question: {question}\nReply: {reply_text}"},
         ],

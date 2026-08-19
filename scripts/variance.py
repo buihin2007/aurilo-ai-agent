@@ -8,7 +8,9 @@ REQUIRED_CANONICAL ={"revenue", "cogs", "gross_margin", "opex", "ebita"}
 GROSS_MARGIN_OBJECTS = {"gross_margin"}
 EXPENSE_OBJECTS = {"cogs", "opex", "personnel", "other_opex","depreciation"}
 EBITA_OBJECTS = {"ebita"}
-NO_FLAG = {"bu_profit"} #repetition: bu_profit = ebita
+#bu_profit: repetition, bu_profit = ebita
+#direct_margin / new_customer_acquisition: Aurilo "do not question" (owner mapping C1, 08 Aug 2026)
+NO_FLAG = {"bu_profit", "direct_margin", "new_customer_acquisition"}
 RANK_LINE_TYPES = {"fsli"}
 NUM_TOP_MOVERS = 10
 def load_input(path):

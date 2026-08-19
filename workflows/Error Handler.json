@@ -1,0 +1,69 @@
+{
+  "name": "Error Handler",
+  "nodes": [
+    {
+      "parameters": {},
+      "type": "n8n-nodes-base.errorTrigger",
+      "typeVersion": 1,
+      "position": [
+        0,
+        0
+      ],
+      "id": "887c0754-b0f2-493d-9228-1a290f0f01be",
+      "name": "Error Trigger"
+    },
+    {
+      "parameters": {
+        "fromEmail": "agent-pilot@aurilo.fi",
+        "toEmail": "marko.aikio@aurilo.fi",
+        "subject": "=Aurilo pipeline failed: {{$json.workflow.name}}",
+        "emailFormat": "text",
+        "text": "=Workflow \"{{$json.workflow.name}}\" failed at step \"{{$json.execution.lastNodeExecuted}}\".\n\nError: {{$json.execution.error.message}}\n\nView details: {{$json.execution.url}}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        208,
+        0
+      ],
+      "id": "b896db90-f193-414f-94e3-e61d440f0b85",
+      "name": "Send an Email",
+      "webhookId": "679c5fec-22a5-44ad-b192-b3de5edb82f1",
+      "credentials": {
+        "smtp": {
+          "id": "JazxsF5xq9BgiBtt",
+          "name": "SMTP account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Error Trigger": {
+      "main": [
+        [
+          {
+            "node": "Send an Email",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": true,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false
+  },
+  "versionId": "aad9ab1a-918f-4777-ba5e-57caa85102dd",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e1a2a93986315dd00eea9893913e275a12e843f7d0e6aa1c1b51c081ae17d51b"
+  },
+  "nodeGroups": [],
+  "id": "cZouDCDJlloRrTcU",
+  "tags": []
+}

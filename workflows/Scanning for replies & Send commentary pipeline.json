@@ -1,0 +1,1207 @@
+{
+  "name": "Scanning for replies & Send commentary pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "cronExpression",
+              "expression": "36 30 9 * * *"
+            },
+            {
+              "field": "cronExpression",
+              "expression": "36 0 13 * * *"
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1184,
+        -1088
+      ],
+      "id": "231bd307-672c-43b6-a98e-e34a408bf5b7",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "fileSelector": "=C:/aurilo-ai-agent/output/threads/itds_{{ $json.data.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -624,
+        -816
+      ],
+      "id": "e35353c0-2ca6-42b5-87ad-06b5151ed2b6",
+      "name": "Read the Threads"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        -112,
+        -496
+      ],
+      "id": "b1a3b688-7bb4-4b76-963e-85019864dad2",
+      "name": "Check the Threads"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.threads",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -288,
+        -576
+      ],
+      "id": "416b672f-3efa-40db-bedc-89f8368a3cf8",
+      "name": "Split Out and get threads"
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        400,
+        -256
+      ],
+      "id": "1d471a95-5b5c-49eb-a765-8065bc159937",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -432,
+        -688
+      ],
+      "id": "869fd16a-58b4-4623-8318-6cbc3355108c",
+      "name": "extract from json"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=C:/aurilo-ai-agent/output/replies_raw/{{ $('SetFieldTrue').item.json.business_unit.toLowerCase() }}_{{ $('SetFieldTrue').item.json.canonical_id }}_{{ $('SetFieldTrue').item.json.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        528,
+        -176
+      ],
+      "id": "a38ae2a3-74d3-487a-bbb8-39f0b5626c9d",
+      "name": "write to replies_raw"
+    },
+    {
+      "parameters": {
+        "fileSelector": "=C:/aurilo-ai-agent/output/kb_entries/{{ $('SetFieldTrue').item.json.business_unit.toLowerCase() }}_{{ $('SetFieldTrue').item.json.canonical_id }}_{{ $('SetFieldTrue').item.json.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        832,
+        32
+      ],
+      "id": "dcb49c11-9587-438b-874d-153857962648",
+      "name": "read kb entries"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        960,
+        112
+      ],
+      "id": "eb0bb6b7-fe4c-49b3-9e34-675889b5e76a",
+      "name": "Extract from File"
+    },
+    {
+      "parameters": {
+        "command": "=cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\summarize_reply.py output/replies_raw/{{ $('SetFieldTrue').item.json.business_unit.toLowerCase() }}_{{ $('SetFieldTrue').item.json.canonical_id }}_{{ $('SetFieldTrue').item.json.period }}.json"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        672,
+        -64
+      ],
+      "id": "8794e667-23ea-4881-9341-68a45d84ed90",
+      "name": "run summarize reply"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "threads",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        16,
+        -624
+      ],
+      "id": "4c91e63f-76fd-495a-a529-887d4fa6505e",
+      "name": "Aggregate into threads"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "639f5d6d-c01f-4014-b641-e37eca0c13cf",
+              "name": "period",
+              "value": "={{ $('extract from json').first().json.data.period }}",
+              "type": "string"
+            },
+            {
+              "id": "483b21a5-23ee-40fc-9eb0-635f1cdd78e6",
+              "name": "business_unit",
+              "value": "={{ $('extract from json').first().json.data.business_unit}}",
+              "type": "string"
+            },
+            {
+              "id": "c5a2f047-dbe0-40f5-8f22-18daed7dbc40",
+              "name": "threads",
+              "value": "={{ $json.threads.map(t => t.data ?? t) }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        160,
+        -544
+      ],
+      "id": "69b3aee6-a3e6-4723-a23a-9ed1625c8342",
+      "name": "Set Fields(period, bu, threads)"
+    },
+    {
+      "parameters": {
+        "url": "=https://graph.microsoft.com/v1.0/teams/5ec367b4-8a14-4ff6-b6b5-2f7f1dfc4d23/channels/19:7tgiRQuli1vAn-1sn4sExkB6_b3btG7oR6H2heGls8Y1@thread.tacv2/messages/{{ $json.message_id }}/replies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        16,
+        -368
+      ],
+      "id": "be8379d3-c6e5-4f4f-b875-b123e90b5204",
+      "name": "Get replies",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "REabpGR6NZi8Lh5I",
+          "name": "Microsoft Teams account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        512,
+        -624
+      ],
+      "id": "f4fd58d7-c076-4651-9673-d060600cbdef",
+      "name": "Convert to File1"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=C:/aurilo-ai-agent/output/threads/itds_{{ $('Set Fields(period, bu, threads)').first().json.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        640,
+        -432
+      ],
+      "id": "92247398-743b-42f9-83ee-8542d46ce3df",
+      "name": "Overwrite threads json"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\send_reminders.py"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        960,
+        -416
+      ],
+      "id": "5204169a-32ae-40ff-9d63-c9cddd046f30",
+      "name": "run send reminders"
+    },
+    {
+      "parameters": {
+        "fileSelector": "=C:/aurilo-ai-agent/output/reminders/itds_{{ $('Set Fields(period, bu, threads)').item.json.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        928,
+        -256
+      ],
+      "id": "d940e23f-6492-4048-9657-0a5332655b0a",
+      "name": "read reminders"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1072,
+        -176
+      ],
+      "id": "448e3a55-48f7-457b-aa42-4dd020252f4b",
+      "name": "Extract from File1"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.reminders",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        1216,
+        -112
+      ],
+      "id": "4d66a4de-3471-44ef-9adf-8bb60b49b009",
+      "name": "split reminders"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        1424,
+        -112
+      ],
+      "id": "a4cf00e3-76ca-48f1-b981-9f0fac0d222a",
+      "name": "Loop Over Items"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "=https://graph.microsoft.com/v1.0/teams/5ec367b4-8a14-4ff6-b6b5-2f7f1dfc4d23/channels/19:7tgiRQuli1vAn-1sn4sExkB6_b3btG7oR6H2heGls8Y1@thread.tacv2/messages/{{ $json.message_id }}/replies",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": {\n    \"content\": {{ JSON.stringify($json.reminder_text) }}\n  }\n}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        1568,
+        -32
+      ],
+      "id": "319c2e94-bcb9-4848-a9f7-d4486a6d6f16",
+      "name": "Send Reminders to Teams",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "REabpGR6NZi8Lh5I",
+          "name": "Microsoft Teams account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\build_payload.py\n\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        1568,
+        -208
+      ],
+      "id": "5edaabc6-90a4-43c9-b787-086a91726ef4",
+      "name": "Run Build Payload"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\draft_commentary.py"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        2064,
+        -240
+      ],
+      "id": "22452923-4716-48cd-8f25-df7994e0756c",
+      "name": "run draft commentary"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        1856,
+        -112
+      ],
+      "id": "8542f83f-cf6d-4e63-abaa-b2c06ec6643c",
+      "name": "Extract from File2"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "loose",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "1d1a11fd-3619-4b75-b2cf-22a546ef3327",
+              "leftValue": "={{$json.value.filter(m => m.from?.user?.id !== 'd631582e-2a12-4508-9534-b22b7dece384').length}}\n",
+              "rightValue": 0,
+              "operator": {
+                "type": "number",
+                "operation": "gt"
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "looseTypeValidation": true,
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        144,
+        -208
+      ],
+      "id": "9409dc30-7605-4513-941e-1709eed66b53",
+      "name": "If no reply/yes reply"
+    },
+    {
+      "parameters": {
+        "fileSelector": "=C:/aurilo-ai-agent/output/payload/itds_{{ $('Extract Period').first().json.data.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        1744,
+        -144
+      ],
+      "id": "e799a6b7-a063-4542-8837-6ab980a20e70",
+      "name": "read payload"
+    },
+    {
+      "parameters": {
+        "fileSelector": "=C:/aurilo-ai-agent/output/draft_commentary/itds_{{ $('Extract from File2').item.json.data.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        2192,
+        -128
+      ],
+      "id": "7c9a2da4-c976-4aa4-a4e8-527b40e610c9",
+      "name": "read draft"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        2384,
+        -80
+      ],
+      "id": "9f2ef24f-d48f-4197-bde6-e9baa53df8a2",
+      "name": "Extract from File3"
+    },
+    {
+      "parameters": {
+        "fromEmail": "Agent-pilot@aurilo.fi",
+        "toEmail": "marko.aikio@aurilo.fi",
+        "subject": "=[DRAFT] ITDS Closing Variance Commentary — {{ $json.data.period }}",
+        "html": "={{ $json.data.draft_html }}",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.emailSend",
+      "typeVersion": 2.1,
+      "position": [
+        2576,
+        -32
+      ],
+      "id": "1f48b23b-0a9d-4c9f-b550-e1ce8ea09fba",
+      "name": "Send Draft Commentary",
+      "webhookId": "de1fec83-8204-42b6-868b-4ac6b4fe4362",
+      "credentials": {
+        "smtp": {
+          "id": "w8yGoLl7hzutJOTR",
+          "name": "SMTP account 2"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "fileSelector": "C:/aurilo-ai-agent/output/questions/itds_latest.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -960,
+        -992
+      ],
+      "id": "fc4a1d47-d8d8-4d28-ba61-37abed4f0c0a",
+      "name": "Read questions to find period"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -784,
+        -928
+      ],
+      "id": "ba809964-d02e-41e8-a45b-1b9292f16792",
+      "name": "Extract Period"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "93844998-38bf-477c-b4bc-5f14415657db",
+              "name": "canonical_id",
+              "value": "={{$('Check the Threads').item.json.canonical_id}}",
+              "type": "string"
+            },
+            {
+              "id": "78e06bfb-9042-45ba-8b83-8116a7134e17",
+              "name": "name",
+              "value": "={{$('Check the Threads').item.json.name}}",
+              "type": "string"
+            },
+            {
+              "id": "13cf67cc-5f8d-49b4-a412-0e72bb5b1a54",
+              "name": "question",
+              "value": "={{$('Check the Threads').item.json.question}}",
+              "type": "string"
+            },
+            {
+              "id": "4e14ba8f-3bc4-427b-a53b-3a534b1fa4c9",
+              "name": "owner_name",
+              "value": "={{$('Check the Threads').item.json.owner_name}}",
+              "type": "string"
+            },
+            {
+              "id": "e9fc88c9-46e4-4554-b47b-0f665f1e33a5",
+              "name": "owner_email",
+              "value": "={{$('Check the Threads').item.json.owner_email}}",
+              "type": "string"
+            },
+            {
+              "id": "ec1e8ea1-6e16-452c-810e-c5d724237572",
+              "name": "message_id",
+              "value": "={{$('Check the Threads').item.json.message_id}}",
+              "type": "string"
+            },
+            {
+              "id": "66ccea7b-30b0-4624-91f5-a1e63693c07d",
+              "name": "posted_date",
+              "value": "={{$('Check the Threads').item.json.posted_date}}",
+              "type": "string"
+            },
+            {
+              "id": "f052558f-b23f-4d53-bdb0-9b3ed9672a6b",
+              "name": "period",
+              "value": "={{$('extract from json').item.json.data.period}}",
+              "type": "string"
+            },
+            {
+              "id": "0f29dd0e-a33e-4fcb-b961-661553012430",
+              "name": "business_unit",
+              "value": "={{$('extract from json').item.json.data.business_unit}}",
+              "type": "string"
+            },
+            {
+              "id": "065b4c55-941c-4756-86e9-84c7ece8376c",
+              "name": "has_reply",
+              "value": true,
+              "type": "boolean"
+            },
+            {
+              "id": "16f90c90-1081-4ccc-bde8-c3cc3b3a9d86",
+              "name": "reply_text",
+              "value": "={{ $json.value.filter(m => m.from?.user?.id !== 'd631582e-2a12-4508-9534-b22b7dece384')[0].body.content.replace(/<[^>]+>/g, '').trim() }}",
+              "type": "string"
+            },
+            {
+              "id": "ea4958e0-13ab-40bc-9eff-356112106279",
+              "name": "reply_at",
+              "value": "={{ $json.value.filter(m => m.from?.user?.id !== 'd631582e-2a12-4508-9534-b22b7dece384')[0].createdDateTime.trim() }}",
+              "type": "string"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        272,
+        -320
+      ],
+      "id": "6752d38f-4d6e-430d-8ac2-e684c0a33a45",
+      "name": "SetFieldTrue"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "93844998-38bf-477c-b4bc-5f14415657db",
+              "name": "canonical_id",
+              "value": "={{$('Check the Threads').item.json.canonical_id}}",
+              "type": "string"
+            },
+            {
+              "id": "78e06bfb-9042-45ba-8b83-8116a7134e17",
+              "name": "name",
+              "value": "={{$('Check the Threads').item.json.name}}",
+              "type": "string"
+            },
+            {
+              "id": "13cf67cc-5f8d-49b4-a412-0e72bb5b1a54",
+              "name": "question",
+              "value": "={{$('Check the Threads').item.json.question}}",
+              "type": "string"
+            },
+            {
+              "id": "4e14ba8f-3bc4-427b-a53b-3a534b1fa4c9",
+              "name": "owner_name",
+              "value": "={{$('Check the Threads').item.json.owner_name}}",
+              "type": "string"
+            },
+            {
+              "id": "e9fc88c9-46e4-4554-b47b-0f665f1e33a5",
+              "name": "owner_email",
+              "value": "={{$('Check the Threads').item.json.owner_email}}",
+              "type": "string"
+            },
+            {
+              "id": "ec1e8ea1-6e16-452c-810e-c5d724237572",
+              "name": "message_id",
+              "value": "={{$('Check the Threads').item.json.message_id}}",
+              "type": "string"
+            },
+            {
+              "id": "66ccea7b-30b0-4624-91f5-a1e63693c07d",
+              "name": "posted_date",
+              "value": "={{$('Check the Threads').item.json.posted_date}}",
+              "type": "string"
+            },
+            {
+              "id": "f052558f-b23f-4d53-bdb0-9b3ed9672a6b",
+              "name": "period",
+              "value": "={{$('extract from json').item.json.data.period}}",
+              "type": "string"
+            },
+            {
+              "id": "0f29dd0e-a33e-4fcb-b961-661553012430",
+              "name": "business_unit",
+              "value": "={{$('extract from json').item.json.data.business_unit}}",
+              "type": "string"
+            },
+            {
+              "id": "065b4c55-941c-4756-86e9-84c7ece8376c",
+              "name": "has_reply",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        320,
+        -32
+      ],
+      "id": "78fbffbf-a4d9-4fb7-975e-9ad47822c5c2",
+      "name": "SetFieldFalse"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "9c406325-5ad8-43e4-8c40-e3f03a625a47",
+              "leftValue": "={{ $json.threads?.length > 0 && /^\\d+$/.test($json.threads[0].message_id ?? '') }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        320,
+        -496
+      ],
+      "id": "1df43e32-191f-4c5a-b76d-f88fe3ec8101",
+      "name": "If"
+    },
+    {
+      "parameters": {
+        "conditions": {
+          "options": {
+            "caseSensitive": true,
+            "leftValue": "",
+            "typeValidation": "strict",
+            "version": 3
+          },
+          "conditions": [
+            {
+              "id": "75dfa2d2-3ac9-49a5-8941-29ba628b0ed8",
+              "leftValue": "={{ $('Set Fields(period, bu, threads)').first().json.threads.every(t => t.has_reply === true) }}",
+              "rightValue": "",
+              "operator": {
+                "type": "boolean",
+                "operation": "true",
+                "singleValue": true
+              }
+            }
+          ],
+          "combinator": "and"
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.if",
+      "typeVersion": 2.3,
+      "position": [
+        864,
+        -544
+      ],
+      "id": "d247f2c7-b486-4364-8032-f76878216883",
+      "name": "If all answered or not"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.microsoft.com/v1.0/sites/turuntietokeskus.sharepoint.com,c6a7b494-a740-40d2-a6aa-3763ce780c8d,b7e7e353-9f7f-4428-8028-45ed94ac75a4/lists/76e7c7ad-f3af-40a4-8024-fb3e522e6c9b/items",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftSharePointOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"fields\": {\n    \"Title\": {{ JSON.stringify($json.data.name) }},\n    \"period\": \"{{ $json.data.period }}\",\n    \"business_unit\": \"{{ $json.data.business_unit }}\",\n    \"canonical_id\": \"{{ $json.data.canonical_id }}\",\n    \"pnl_line\": {{ JSON.stringify($json.data.name) }},\n    \"question\": {{ JSON.stringify($json.data.question) }},\n    \"answer_raw\": {{ JSON.stringify($json.data.reply_text) }},\n    \"answer_clean\": {{ JSON.stringify($json.data.answer_clean) }},\n    \"needs_review\": {{ $json.data.needs_review }},\n    \"owner\": {{ JSON.stringify($json.data.owner_name) }},\n    \"date\": \"{{ $json.data.reply_at }}\"\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        864,
+        256
+      ],
+      "id": "881c2fcb-404a-41a3-8a4d-b5b689a1c0f5",
+      "name": "Post to Sharepoint KB",
+      "credentials": {
+        "microsoftSharePointOAuth2Api": {
+          "id": "TGwyrBwIa1f3DyE9",
+          "name": "Microsoft SharePoint account"
+        }
+      }
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Read questions to find period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read the Threads": {
+      "main": [
+        [
+          {
+            "node": "extract from json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Check the Threads": {
+      "main": [
+        [
+          {
+            "node": "Aggregate into threads",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Get replies",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out and get threads": {
+      "main": [
+        [
+          {
+            "node": "Check the Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "write to replies_raw",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract from json": {
+      "main": [
+        [
+          {
+            "node": "Split Out and get threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "write to replies_raw": {
+      "main": [
+        [
+          {
+            "node": "run summarize reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read kb entries": {
+      "main": [
+        [
+          {
+            "node": "Extract from File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File": {
+      "main": [
+        [
+          {
+            "node": "Post to Sharepoint KB",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "run summarize reply": {
+      "main": [
+        [
+          {
+            "node": "read kb entries",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregate into threads": {
+      "main": [
+        [
+          {
+            "node": "Set Fields(period, bu, threads)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Get replies": {
+      "main": [
+        [
+          {
+            "node": "If no reply/yes reply",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Fields(period, bu, threads)": {
+      "main": [
+        [
+          {
+            "node": "If",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File1": {
+      "main": [
+        [
+          {
+            "node": "Overwrite threads json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Overwrite threads json": {
+      "main": [
+        [
+          {
+            "node": "If all answered or not",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "run send reminders": {
+      "main": [
+        [
+          {
+            "node": "read reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read reminders": {
+      "main": [
+        [
+          {
+            "node": "Extract from File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File1": {
+      "main": [
+        [
+          {
+            "node": "split reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "split reminders": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Loop Over Items": {
+      "main": [
+        [],
+        [
+          {
+            "node": "Send Reminders to Teams",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Send Reminders to Teams": {
+      "main": [
+        [
+          {
+            "node": "Loop Over Items",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Build Payload": {
+      "main": [
+        [
+          {
+            "node": "read payload",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "run draft commentary": {
+      "main": [
+        [
+          {
+            "node": "read draft",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File2": {
+      "main": [
+        [
+          {
+            "node": "run draft commentary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If no reply/yes reply": {
+      "main": [
+        [
+          {
+            "node": "SetFieldTrue",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "SetFieldFalse",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read payload": {
+      "main": [
+        [
+          {
+            "node": "Extract from File2",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "read draft": {
+      "main": [
+        [
+          {
+            "node": "Extract from File3",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract from File3": {
+      "main": [
+        [
+          {
+            "node": "Send Draft Commentary",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read questions to find period": {
+      "main": [
+        [
+          {
+            "node": "Extract Period",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Extract Period": {
+      "main": [
+        [
+          {
+            "node": "Read the Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetFieldTrue": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "SetFieldFalse": {
+      "main": [
+        [
+          {
+            "node": "Check the Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If": {
+      "main": [
+        [
+          {
+            "node": "Convert to File1",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "If all answered or not": {
+      "main": [
+        [
+          {
+            "node": "Run Build Payload",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "run send reminders",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post to Sharepoint KB": {
+      "main": [
+        [
+          {
+            "node": "Check the Threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "cZouDCDJlloRrTcU",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Europe/Helsinki"
+  },
+  "versionId": "8c8a2fc9-8c91-4334-a054-f0df33f6bef7",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e1a2a93986315dd00eea9893913e275a12e843f7d0e6aa1c1b51c081ae17d51b"
+  },
+  "nodeGroups": [],
+  "id": "Ufq0ClWXfVtlcVAM",
+  "tags": []
+}

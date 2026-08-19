@@ -2,7 +2,8 @@ import openpyxl
 from typing import Optional
 import datetime
 from pathlib import Path
-from glossary_and_helpers import TAG_NAME, CANONICAL, BUDGET_TAG_RE, CODE_RE, PERIOD_RE
+from glossary_and_helpers import (TAG_NAME, CANONICAL, BUDGET_TAG_RE, CODE_RE, PERIOD_RE,
+                                  load_account_area_map)
 from openpyxl.utils import get_column_letter
 import json
 from dataclasses import asdict
@@ -28,6 +29,9 @@ class PnLLine:
     fy_budget: Optional[float]
     #relation:
     parent: Optional[str]
+    #canonical_id of the FSLI this line rolls up to, from Adaptive's account master.
+    #Detail lines inherit their area owner through this (Aurilo owner mapping C1).
+    fsli_area: Optional[str]
     #for-audit-trail:
     source_file: str
     source_sheet: str
@@ -104,6 +108,7 @@ def find_month_col(ws, tag_header_row, month_header_row, tags_set, period,extra_
 def create_pnl_object(ws, data_start_from, period, label_col, cur_fc_col, budget_col, pre_fc_col, source_file):
     pnl_objects = []
     seen_canonical = []
+    area_by_code, area_by_name = load_account_area_map()
     for row in range(data_start_from, ws.max_row+1):
         label = ws.cell(row, label_col).value
         label_clean = str(label).strip()
@@ -140,6 +145,11 @@ def create_pnl_object(ws, data_start_from, period, label_col, cur_fc_col, budget
                 parent = None 
         account_code = m.group(1) if m else None
         name = m.group(2) if m else str(label).strip()
+        #an FSLI is its own area; other lines resolve through the account master,
+        #by code where the export prints one, otherwise by account name
+        fsli_area = (canonical_id
+                     or (area_by_code.get(account_code) if account_code else None)
+                     or area_by_name.get(name.strip().lower()))
         
         
         pnl_objects.append(PnLLine(
@@ -153,6 +163,7 @@ def create_pnl_object(ws, data_start_from, period, label_col, cur_fc_col, budget
             budget = budget,
             ly = None, ytd_actual = None, ytd_budget = None, fy_budget =None,
             parent = parent,
+            fsli_area = fsli_area,
             source_file = source_file,
             source_sheet = ws.title,
             source_row = row,
@@ -194,7 +205,8 @@ def write_json(pnl_objects, period):
 
 if __name__ == "__main__":
     # load workbooks
-    files = sorted(Path("data/itds").glob("*.xlsx"), key=lambda f: f.stat().st_mtime, reverse=True)
+    files = sorted((f for f in Path("data/itds").glob("*.xlsx") if not f.name.startswith("~$")),
+                    key=lambda f: f.stat().st_mtime, reverse=True)
     if not files:
         raise FileNotFoundError("No .xlsx file found in data/itds/ — place this month's ITDS export there first.")
     source_file = files[0].name

@@ -1,235 +1,350 @@
-# Aurilo AI Agent
+# Aurilo Closing Variance Agent
 
-Aurilo AI Agent supports monthly Financial and Management Reporting by reading reporting files, checking the data, calculating key variances, identifying important drivers, and preparing draft management commentary for review.
+Automates the monthly variance-explanation loop for Aurilo Group. The
+agent reads the ITDS P&L export from Workday Adaptive Planning, works out
+which lines moved materially against the prior forecast, asks the
+responsible owner about each one in Microsoft Teams, collects and
+summarises the answers, and assembles an English commentary draft for
+Finance review.
 
-The agent is designed to help finance users prepare monthly Business Review material faster while keeping every output traceable to the original source data.
+It does not replace review. Every output is a draft, and nothing is
+published without a person approving it.
 
-## Project Status
+**Installation and the pilot test run: [SETUP.md](SETUP.md).**
 
-**Prototype — early build.** Most of this README describes the *target* design. Only part of the pipeline runs today. Steps marked _(target design)_ below are not yet implemented.
+## What has to be set by hand
 
-**Working today:**
+Everything else runs on a schedule. These are the points where a person
+decides something:
 
-- `scripts/translate.py` — Finnish → English label translation. Checks `docs/glossary_finnish_english.xlsx` first (verified terms), falls back to Google Translate for the rest, and writes a `*_translated.xlsx` copy. _Note: the translation logic is implemented, but the script has no command-line entry point yet — `translate_file()` must be called manually. Running `python scripts/translate.py` currently does nothing on its own._
-- `scripts/ingest_ITDS.py` — parses the ITDS file's `closing_PnL` sheet and writes `output/variance.json`. This file currently holds **raw figures only** (Actual / Budget / Last Year / Prior Forecast for month, YTD, and FY26). No variances, materiality flags, or source-cell references are computed yet, and column/row positions are hardcoded rather than scanned.
+| What | Where | When it changes |
+|---|---|---|
+| The monthly Excel export | `data/itds/` | every month — the only recurring manual step |
+| Who owns which P&L area | `data/itds/owner_mapping.json` | when responsibilities move |
+| Materiality thresholds | `MATERIALITY_THRESHOLD` in `scripts/variance.py` | if Finance revises the rules |
+| How many questions per month | `NUM_TOP_MOVERS` in `scripts/variance.py` | if the volume is wrong for the team |
+| Lines never to ask about | `NO_FLAG` in `scripts/variance.py` | currently Business Unit Profit, Direct Margin, New Customer Acquisition |
+| LLM endpoint and key | `.env` | when Aurilo's own deployment replaces the pilot key |
+| Run times | Schedule Trigger in each workflow | if the closing calendar moves |
+| Teams channel, SharePoint list | the workflow JSONs | if either is recreated |
 
-**Not built yet _(target design)_:** data validation, the variance calculation itself, insight selection, commentary drafting, PPTX export, the `run_monthly_report.py` orchestrator, and the Managed Services / Group ingest scripts.
+## How it works
 
-> Known inconsistency: this README uses the period format `2026-05` (year-month, sortable). The current code emits `05-2026`. These will be reconciled to `2026-05`.
+### 1. Loading the data
 
-## What The Agent Does
+- Someone at Aurilo exports the ITDS P&L and drops the Excel file into
+  the agent's project folder. The pipeline reads the most recently
+  modified `.xlsx`, so older exports can stay where they are.
+- **Future:** the agent downloads the right file itself. Needs SharePoint
+  access and permission.
 
-- Reads monthly financial reporting Excel files.
-- Checks whether required data is present and usable.
-- Calculates Actual vs Budget, Actual vs Forecast, and Actual vs Last Year variances.
-- Highlights material deviations and possible reporting risks.
-- Produces draft management commentary.
-- Shows the source data behind each figure and conclusion.
-- Exports report-ready outputs for finance review.
+### 2. Processing the data
 
-The agent does not replace finance review. All commentary and outputs should be checked and approved by a responsible finance user before use in management reporting.
+- Parses the statement into the shape the variance stage needs.
+- Columns and rows are located by scanning for labels and dates rather
+  than fixed positions, which absorbs small format changes. The pipeline
+  raises an alert when something does not add up — missing lines, missing
+  values — rather than carrying on quietly.
+- That approach is what absorbed the June 2026 ERP migration: every line
+  name changed, and nothing downstream had to be rewritten.
+- **Future:** maintain the parser so it keeps up with month-to-month
+  drift without code changes. Another ERP migration would still mean a
+  major refactor.
 
-## Monthly User Workflow
+### 3. Calculating and ranking variances
 
-### 1. Prepare The Input Files
+- Each line is compared against the prior forecast, then measured against
+  Aurilo's own materiality thresholds. For June 2026 that flagged 62 of
+  107 lines.
+- Of the flagged lines, only the main statement items are ranked — up to
+  ten a month — and turned into questions. June 2026 produced 8.
+- Detail accounts are still measured and recorded, but nobody is asked
+  about them.
+- **Future:** keep flagging and ranking at statement level, then break
+  each mover down by dimension — offering, customer group, cost centre —
+  so the question points at the driver rather than the total. Also flag
+  variances that recur two months or more, even when each month on its
+  own stays under the thresholds.
 
-Collect the monthly reporting files for the relevant reporting period.
+### 4. Mapping lines to their owners
 
-Typical input files include:
+- Statement items are mapped to the owners Marko provided, so each
+  question reaches the person who can answer it. Anything unmapped falls
+  to the business unit lead.
+- **Future:** a mapping at dimension level. Mapping only at statement
+  level is too coarse — "Operative Expenses" is one owner, but the
+  underlying cost centres are not.
 
-- ITDS P&L Excel file
-- Managed Services P&L Excel file
-- Group management reporting Excel file
-- previous Business Review material, if used for style or comparison
+### 5. Asking in Teams
 
-Use the latest approved files from the monthly reporting process. Do not use unfinished or unapproved working files unless the output is clearly treated as a draft.
+- One question thread per ranked line, posted into the Finance Q&A
+  channel. Each states the line, the amount, the percentage, and asks for
+  the reason:
 
-### 2. Add Files To The Agent
+  > Hey Erkki Kondelin, Total Revenue came in €929,091 below Prior FC
+  > (-10.0%) — what was the reason behind?
 
-Place the input files in the local input folder:
+- **Future:** @mention the owner rather than only naming them, and ask at
+  dimension level so the question carries the finding:
 
-```text
-data/
+  > Hardware revenue was €1,143,291 below Prior FC (-15.5%), while the
+  > rest of the portfolio was slightly up. What drove the hardware
+  > shortfall?
+
+### 6. Scanning and collecting replies
+
+- Twice a day, 09:30 and 13:00, the agent checks each open question for a
+  reply.
+- Unanswered questions get a reminder posted inside their own
+  conversation:
+
+  > Reminder — Ari Jaatinen, still waiting for your reply on Operative
+  > Expenses.
+
+- Answered ones stop being chased.
+- **Future:** check that the person replying is the owner the question
+  went to; acknowledge answers rather than staying silent; and ask again
+  when an answer is unclear, thin, or off-topic.
+
+### 7. Processing the answers
+
+- The agent reads each reply and condenses it into one factual sentence,
+  highlighting the key driver.
+- The model also judges whether the reply actually answers the question.
+  Off-topic or evasive answers are labelled **needs-review**.
+- Every answer is stored in the knowledge base with its question, its
+  owner and timestamps, so the reasoning behind each month's numbers is
+  logged and auditable.
+- **Still needed from Aurilo:** an internal LLM deployment for this step —
+  it currently runs on a temporary key belonging to the delivery team.
+- **Future:** keep asking until an answer is good enough, instead of
+  filing a weak one with a label.
+
+### 8. Drafting the commentary
+
+- Once every question has an answer, the figures and the summarised
+  explanations become an English commentary draft.
+- Anything flagged **needs-review** is marked in the draft, so the
+  reviewer sees which explanations are thin.
+- The draft is delivered by email.
+- **Still needed from Aurilo:** an internal LLM deployment for the
+  drafting step, and permission to post the draft as a link in the Q&A
+  channel — the delivery method Aurilo asked for.
+- **Future:** no needs-review answers left in the draft, because the
+  agent will have chased them down first.
+
+### Scope now, and what comes next
+
+| | Pilot | Next |
+|---|---|---|
+| Business units | ITDS | MS, Group Functions, One-Time Items |
+| Comparison | current forecast vs prior forecast | budget and last year as well |
+| Granularity | statement lines only | statement lines broken down by offering, customer group and cost centre |
+| Flagging rules | Section 9 thresholds | recurring variance over consecutive months; customer revenue threshold |
+| Owner routing | one owner per statement line | per cost centre and per offering |
+| Question wording | owner named in the text | real @mention |
+| Draft delivery | email | link posted in the Q&A channel |
+| Weak answers | flagged for review | chased until answered properly |
+| Knowledge base | stored for the record | read back as context for future months |
+| Running the workflows | started by hand from n8n | Task Scheduler starts n8n with the machine and the schedules run unattended |
+
+Splitting costs by cost centre and revenue by customer needs dimensions
+that are not in the current export; the offering split already is.
+
+## System layout
+
+```
+aurilo-ai-agent/
+├── data/
+│   ├── itds/
+│   │   ├── *.xlsx                 monthly P&L export from Adaptive
+│   │   └── owner_mapping.json     P&L area → responsible person
+│   └── Accounts (6).xlsx          Adaptive account master, for the hierarchy
+├── scripts/
+│   ├── ingest_ITDS.py             Excel → parsed statement lines
+│   ├── variance.py                variances, materiality flags, top movers
+│   ├── build_questions.py         questions + owner routing
+│   ├── send_reminders.py          one reminder per unanswered line
+│   ├── summarize_reply.py         one reply → one knowledge-base entry
+│   ├── build_payload.py           whitelisted payload for the LLM
+│   ├── draft_commentary.py        payload → commentary draft
+│   └── glossary_and_helpers.py    canonical crosswalk, account hierarchy
+├── workflows/                     n8n exports — import these, do not edit by hand
+├── output/                        everything the pipeline produces
+└── start-n8n.cmd                  launcher for Task Scheduler
 ```
 
-The agent reads files from this folder when the monthly workflow is run.
+Each script does one step and hands over a JSON file. Business logic
+reads only those files and the internal IDs — never Excel or source
+labels directly. A future format change costs one adapter, not a rewrite.
 
-### 3. Run The Monthly Report Workflow
+### What lands in `output/`
 
-**Today** the pipeline runs as individual scripts, in order. Only translation and ITDS ingest are implemented:
+| Folder | Contents |
+|---|---|
+| `ingest/` | parsed statement lines, each with its source cell |
+| `variance/` | variances, materiality flags, ranked top movers |
+| `questions/` | questions with their assigned owners |
+| `threads/` | what was asked, and which Teams message each question is |
+| `replies_raw/` | one file per reply received |
+| `kb_entries/` | summarised answers, mirrored to SharePoint |
+| `reminders/` | reminders due for unanswered lines |
+| `payload/` | the figures and explanations sent to the LLM |
+| `draft_commentary/` | the finished draft |
 
-```bash
-# 1. Translate Finnish labels → *_translated.xlsx
-#    (logic only — no CLI entry point yet; call translate_file() manually)
+Files are period-stamped and never overwritten, so history accumulates.
+That is what a future "this line has missed forecast three months
+running" rule will read.
 
-# 2. Parse the ITDS closing_PnL sheet → output/variance.json (raw figures only)
-python scripts/ingest_ITDS.py
+## System architecture
+
+Two n8n workflows. They never call each other — they communicate through
+`output/threads/`, which is why one can run monthly and the other several
+times a day.
+
+### Workflow 1 — ITDS Monthly Pipeline
+
+```mermaid
+flowchart TB
+    T([Schedule Trigger]) --> A[Run Ingest_ITDS]
+    A --> B[Run Variance.py]
+    B --> C[Run Build_Questions]
+    C --> D[/Read question files/]
+    D --> E[/extract to json/]
+    E --> F[Split Out]
+    F --> G{{loop over questions}}
+    G -- loop --> H[[Post Questions in Teams]]
+    H --> I[Set fields]
+    I --> G
+    G -- done --> J[Aggregate into threads]
+    J --> K[Set Fields period, bu, threads]
+    K --> L[/Convert to File/]
+    L --> M[/write file to output-threads/]
 ```
 
-`ingest_ITDS.py` has no arguments — the input filename, sheet, and period are fixed inside the script. It reads `data/copy ITDS_PnL_officeConnect_1.1.xlsx` and overwrites `output/variance.json` on each run.
+Ingest, variance and question building are Python steps. The loop posts
+one message per question and records the message ID that Teams returns.
+The final file is the record of what was asked — losing it means replies
+can no longer be matched back.
 
-**Target design** — a single orchestrator runs the full pipeline for a chosen month and business unit:
+### Workflow 2 — Scanning for replies & Send commentary
 
-```bash
-python scripts/run_monthly_report.py --period 2026-05 --business-unit ITDS
+```mermaid
+flowchart TB
+    T([Schedule Trigger]) --> P1[/Read questions to find period/]
+    P1 --> P2[/Extract Period/]
+    P2 --> P3[/Read the Threads/]
+    P3 --> P4[/extract from json/]
+    P4 --> P5[Split Out and get threads]
+    P5 --> LOOP{{Check the Threads}}
+
+    LOOP -- loop --> G1[[Get replies]]
+    G1 --> IF1{reply from a human?}
+    IF1 -- yes --> S1[SetFieldTrue]
+    IF1 -- no --> S2[SetFieldFalse]
+    S1 --> C1[/Convert to File/]
+    C1 --> W1[/write to replies_raw/]
+    W1 --> R1[run summarize reply]
+    R1 --> K1[/read kb entries/]
+    K1 --> K2[/Extract from File/]
+    K2 --> K3[[Post to Sharepoint KB]]
+    K3 --> LOOP
+    S2 --> LOOP
+
+    LOOP -- done --> AGG[Aggregate into threads]
+    AGG --> SET[Set Fields period, bu, threads]
+    SET --> GUARD{threads look valid?}
+    GUARD -- yes --> C2[/Convert to File1/]
+    C2 --> OW[/Overwrite threads json/]
+    OW --> RM1[run send reminders]
+    RM1 --> RM2[/read reminders/]
+    RM2 --> RM3[/Extract from File1/]
+    RM3 --> RM4[split reminders]
+    RM4 --> RM5{{Loop Over Items}}
+    RM5 -- loop --> RM6[[Send Reminders to Teams]]
+    RM6 --> RM5
+
+    RM5 -- done --> PY1[Run Build Payload]
+    PY1 --> PY2[/read payload/]
+    PY2 --> PY3[/Extract from File2/]
+    PY3 --> IF2{all answered?}
+    IF2 -- yes --> D1[run draft commentary]
+    D1 --> D2[/read draft/]
+    D2 --> D3[/Extract from File3/]
+    D3 --> D4[[Send Draft Commentary]]
 ```
 
-```text
-read input files
-check data quality
-calculate variances
-select key insights
-draft commentary
-prepare output files
-```
+The inner loop handles one question at a time: fetch its replies, and if
+a human answered, summarise and file the answer. The outer path then
+rewrites the threads file, sends reminders for whatever is still open,
+and produces the draft only when nothing is outstanding.
 
-_The orchestrator, and every step after ingest, are not yet built._
+The reply check ignores the agent's own messages. Reminders are posted as
+replies inside each question's thread, so without that filter the agent
+would read its own reminders as answers.
 
-### 4. Review Data Checks
+## Data privacy
 
-Before using the commentary, review the validation result.
+Excel parsing, variance calculation and all intermediate files stay on
+the machine. Only aggregated figures and the text of the questions and
+answers reach the LLM API, assembled from an explicit allow-list of
+fields — source-cell references and anything carrying a counterparty name
+never leave.
 
-The agent should show whether:
+Teams and SharePoint traffic stays inside Aurilo's own tenant, under the
+service account's permissions.
 
-- required P&L lines were found
-- required Actual, Budget, Forecast, and Last Year values are present
-- source references are available
-- unusual values were detected
-- any data issues block commentary generation
+## What to watch, and where the limits are
 
-If validation fails, fix the input file or confirm the issue with the responsible finance owner before continuing.
+This is a prototype, running locally on a single machine. Not production
+infrastructure: no redundancy, no monitoring beyond the error-handler
+email, and scheduled runs happen only while that machine is awake and n8n
+is running.
 
-### 5. Review Variance Analysis
+**Publishing a workflow does not keep it running.** `n8n start` is an
+ordinary process that stops when its window closes or the machine
+reboots. Task Scheduler pointed at `start-n8n.cmd`, triggered at log on
+with **Run only when user is logged on**, is what makes it survive — the
+alternative runs n8n under a different profile where it finds an empty
+database and appears to work with no workflows in it.
 
-**Today** `output/variance.json` contains **raw figures only** — for each P&L line, the Actual / Budget / Last Year / Prior Forecast values across month, YTD, and FY26, plus `source_sheet` and `source_row`. Despite the filename, no variances are calculated yet. You can eyeball Actual vs Budget by hand, but the agent does not compute or flag anything.
+**Missed runs are not caught up.** If the machine is off or asleep when a
+schedule fires, that run is skipped. The reply-polling workflow recovers
+by itself next time, because it re-derives everything from the threads
+file. The monthly one does not: miss its slot and no questions go out
+that month. Worth setting the machine never to sleep, and worth
+considering a monthly trigger that fires more than once on the day.
 
-**Target design** _(not yet built)_ — the variance step should show, per line:
+**The LLM key is temporary and expires on 22 August 2026.** The two
+commentary steps run against a DeepSeek key belonging to the delivery
+team, provided for this test only. **We will deactivate it on 22 August
+2026.** From that date *Run summarize reply* and *Run draft commentary*
+will fail; everything else — reading the export, calculating variances,
+posting questions, collecting replies, sending reminders — keeps working
+as normal.
 
-- Actual vs Budget variance
-- Actual vs Forecast variance
-- Actual vs Last Year variance
-- absolute variance
-- percentage variance
-- materiality flag
-- source cell reference
+To restore them, send us the Azure OpenAI endpoint, key, API version and
+the two deployment names for a model of your own, and we will supply
+updated scripts and instructions. It is a configuration change on our
+side, not a rebuild.
 
-Use this step to confirm that the agent has identified the correct key movements for the month.
+**Questions name their owner but do not @mention them.** Mentioning needs
+each owner's Azure AD object ID rather than their email address.
 
-### 6. Review Key Insights
+**Reminders have no delay rule.** An unanswered question is reminded on
+every polling run, twice a day, until it is answered.
 
-The agent selects the most important drivers from the variance analysis.
+**A weak answer still counts as answered.** If a reply does not really
+address the question, the agent flags it for review in the draft — but it
+stops chasing that line, and the draft is still produced.
 
-Typical insights include:
+**Detail-line attribution depends on the account master.** With
+`data/Accounts*.xlsx` present, detail accounts inherit the owner of the
+statement line they roll up to. Without it the pipeline runs and
+questions still route correctly, but flagged detail lines are no longer
+attributed to an owner area.
 
-- largest negative drivers
-- largest positive drivers
-- material changes in Revenue, Gross Margin, EBITDA, or BU Profit
-- unusual movements
-- items requiring human explanation
-
-The finance user should confirm whether the selected insights match the business reality of the month.
-
-### 7. Review Draft Commentary
-
-The agent prepares a draft commentary based on the selected insights.
-
-The commentary should be reviewed for:
-
-- factual correctness
-- business context
-- tone and wording
-- missing explanations
-- unnecessary or misleading statements
-
-Each commentary point should be supported by source figures. If a statement cannot be traced to data or known business context, it should be edited or removed.
-
-### 8. Edit And Approve
-
-The finance user edits the draft commentary where needed.
-
-Common edits may include:
-
-- adding business reasons behind a variance
-- correcting terminology
-- shortening commentary for executive reporting
-- adding context from sales, operations, or service owners
-- removing low-confidence explanations
-
-The final version should be approved by the responsible finance user before being used in Business Review material.
-
-### 9. Export Outputs
-
-After review, export the reporting outputs.
-
-**Today** the pipeline produces exactly one file, overwritten each run:
-
-```text
-output/variance.json          # ITDS only, raw figures — see §5
-```
-
-**Target design** _(not yet built)_ — per-period, per-business-unit outputs:
-
-```text
-output/<period>_<business_unit>_variance.json
-output/<period>_<business_unit>_insights.json
-output/<period>_<business_unit>_commentary.md
-output/<period>_<business_unit>_trace_table.csv
-output/<period>_<business_unit>_business_review.pptx
-```
-
-The exact output depends on the enabled workflow.
-
-## How To Read The Outputs
-
-### Variance File
-
-The variance file contains calculated differences between Actuals and comparison values such as Budget, Forecast, and Last Year.
-
-Use it to verify the numbers behind the commentary.
-
-### Insights File
-
-The insights file contains the most important selected drivers for the reporting period.
-
-Use it to understand what the agent considered material.
-
-### Commentary File
-
-The commentary file contains draft management text.
-
-Use it as a starting point for the Business Review narrative.
-
-### Trace Table
-
-The trace table links figures and conclusions back to the source file, sheet, row, and cell.
-
-Use it to audit where the numbers came from.
-
-### PowerPoint Output
-
-If PowerPoint export is enabled, the agent prepares a draft Business Review presentation.
-
-Review the presentation before sharing it with management.
-
-## Data Safety
-
-Financial reporting data is confidential.
-
-Do not commit the following files to GitHub:
-
-- Excel reporting files
-- PowerPoint reporting files
-- exported reports containing real financial data
-- `.env` files
-- API keys
-- client financial data
-
-Use local folders for input and output files. Share exported reports only through approved Aurilo channels.
-
-## Important Notes
-
-- The agent creates draft outputs, not final approved reports.
-- The finance user remains responsible for reviewing and approving all commentary.
-- The agent should not invent explanations that are not supported by data or known business context.
-- If data validation fails, the workflow should stop until the issue is resolved.
-- Every financial figure used in commentary should be traceable to a source file.
+**The threads file is not reconstructible.** It holds the Teams message
+IDs assigned at post time. If it is lost or overwritten with something
+malformed, replies to those questions can no longer be collected — the
+workflow keeps running and simply finds nothing.

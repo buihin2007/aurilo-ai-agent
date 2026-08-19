@@ -1,0 +1,462 @@
+{
+  "name": "ITDS Monthly Pipeline",
+  "nodes": [
+    {
+      "parameters": {
+        "rule": {
+          "interval": [
+            {
+              "field": "months",
+              "triggerAtDayOfMonth": 5,
+              "triggerAtHour": 9
+            }
+          ]
+        }
+      },
+      "type": "n8n-nodes-base.scheduleTrigger",
+      "typeVersion": 1.3,
+      "position": [
+        -1072,
+        -896
+      ],
+      "id": "330541ad-384b-4352-b01f-4245dd93c3d3",
+      "name": "Schedule Trigger"
+    },
+    {
+      "parameters": {
+        "command": "cd /d  C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\ingest_ITDS.py\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -928,
+        -816
+      ],
+      "id": "afd88049-5e7a-4353-afa1-175b2a3f18be",
+      "name": "Run Ingest_ITDS"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\variance.py\n\n\n\n\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -784,
+        -736
+      ],
+      "id": "4dd02499-9bb7-41b2-bdc7-3e9377afb1c5",
+      "name": "Run Variance.py"
+    },
+    {
+      "parameters": {
+        "command": "cd /d C:\\aurilo-ai-agent && C:\\aurilo-ai-agent\\.venv\\Scripts\\python.exe -u scripts\\build_questions.py\n\n"
+      },
+      "type": "n8n-nodes-base.executeCommand",
+      "typeVersion": 1,
+      "position": [
+        -640,
+        -656
+      ],
+      "id": "a41c725c-6561-4160-a8a8-bfd47e2bc28c",
+      "name": "Run Build_Questions"
+    },
+    {
+      "parameters": {
+        "fileSelector": "C:/aurilo-ai-agent/output/questions/itds_latest.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        -496,
+        -592
+      ],
+      "id": "80d79b6c-6c5d-4cbe-b044-f25946c2f9e3",
+      "name": "Read question files"
+    },
+    {
+      "parameters": {
+        "operation": "fromJson",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.extractFromFile",
+      "typeVersion": 1.1,
+      "position": [
+        -352,
+        -496
+      ],
+      "id": "c0871529-92a7-4c45-bf68-668c391d89ba",
+      "name": "extract to json"
+    },
+    {
+      "parameters": {
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitInBatches",
+      "typeVersion": 3,
+      "position": [
+        0,
+        -416
+      ],
+      "id": "1e15dd10-7825-4dd5-82d0-3bdfc30dacb4",
+      "name": "loop over questions to write threads"
+    },
+    {
+      "parameters": {
+        "method": "POST",
+        "url": "https://graph.microsoft.com/v1.0/teams/5ec367b4-8a14-4ff6-b6b5-2f7f1dfc4d23/channels/19:7tgiRQuli1vAn-1sn4sExkB6_b3btG7oR6H2heGls8Y1@thread.tacv2/messages",
+        "authentication": "predefinedCredentialType",
+        "nodeCredentialType": "microsoftTeamsOAuth2Api",
+        "sendBody": true,
+        "specifyBody": "json",
+        "jsonBody": "={\n  \"body\": {\n    \"content\": {{ JSON.stringify($json.question) }}\n  }\n}\n",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.httpRequest",
+      "typeVersion": 4.4,
+      "position": [
+        144,
+        -304
+      ],
+      "id": "bdca36c0-92e0-4fe8-8159-4acea76b6b9d",
+      "name": "Post Questions in Teams",
+      "credentials": {
+        "microsoftTeamsOAuth2Api": {
+          "id": "REabpGR6NZi8Lh5I",
+          "name": "Microsoft Teams account"
+        }
+      }
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "9b1e9263-8638-40ab-aa04-2077081fd80a",
+              "name": "name",
+              "value": "={{ $('loop over questions to write threads').item.json.name }}",
+              "type": "string"
+            },
+            {
+              "id": "d141c73d-e080-4227-9d5d-d014ac2cae30",
+              "name": "canonical_id",
+              "value": "={{ $('loop over questions to write threads').item.json.canonical_id }}",
+              "type": "string"
+            },
+            {
+              "id": "606c3840-ac9b-436a-8ec0-6a999890f858",
+              "name": "question",
+              "value": "={{ $('loop over questions to write threads').item.json.question }}",
+              "type": "string"
+            },
+            {
+              "id": "242e9e70-8c94-4d7a-b071-9f1be5294b7f",
+              "name": "owner_name",
+              "value": "={{ $('loop over questions to write threads').item.json.owner_name }}",
+              "type": "string"
+            },
+            {
+              "id": "ce643341-8de5-42ab-996b-c4db2401aa09",
+              "name": "owner_email",
+              "value": "={{ $('loop over questions to write threads').item.json.owner_email }}",
+              "type": "string"
+            },
+            {
+              "id": "16b21dbb-e2b7-4afe-80e8-666a77adad26",
+              "name": "message_id",
+              "value": "={{ $json.id }}",
+              "type": "string"
+            },
+            {
+              "id": "2e793c47-3e8f-406c-be27-4caee8887dc5",
+              "name": "posted_date",
+              "value": "={{ $json.createdDateTime }}",
+              "type": "string"
+            },
+            {
+              "id": "4f921603-6967-4925-8bbc-c11916b5bb8d",
+              "name": "has_reply",
+              "value": false,
+              "type": "boolean"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        304,
+        -176
+      ],
+      "id": "30d2f0c1-1a82-46c9-8086-89e22591f798",
+      "name": "Set fields (5 fields from questions+message_id+posted_date)"
+    },
+    {
+      "parameters": {
+        "aggregate": "aggregateAllItemData",
+        "destinationFieldName": "threads",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.aggregate",
+      "typeVersion": 1,
+      "position": [
+        176,
+        -544
+      ],
+      "id": "6f90e9b1-0551-4135-9e4a-787de281566d",
+      "name": "Aggregrate 10 threads into a \"threads\" field"
+    },
+    {
+      "parameters": {
+        "assignments": {
+          "assignments": [
+            {
+              "id": "639f5d6d-c01f-4014-b641-e37eca0c13cf",
+              "name": "period",
+              "value": "={{ $('extract to json').item.json.data.period }}",
+              "type": "string"
+            },
+            {
+              "id": "483b21a5-23ee-40fc-9eb0-635f1cdd78e6",
+              "name": "business_unit",
+              "value": "={{ $('extract to json').item.json.data.business_unit }}",
+              "type": "string"
+            },
+            {
+              "id": "c5a2f047-dbe0-40f5-8f22-18daed7dbc40",
+              "name": "threads",
+              "value": "={{ $json.threads }}",
+              "type": "array"
+            }
+          ]
+        },
+        "options": {}
+      },
+      "type": "n8n-nodes-base.set",
+      "typeVersion": 3.4,
+      "position": [
+        336,
+        -448
+      ],
+      "id": "ed6bf8a7-4d75-41c6-a6bb-b4187f8ac899",
+      "name": "Set Fields(period, bu, threads)"
+    },
+    {
+      "parameters": {
+        "operation": "write",
+        "fileName": "=C:/aurilo-ai-agent/output/threads/itds_{{ $('Set Fields(period, bu, threads)').first().json.period }}.json",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.readWriteFile",
+      "typeVersion": 1.1,
+      "position": [
+        608,
+        -256
+      ],
+      "id": "fb5fc786-627f-4477-9ace-f7f050788008",
+      "name": "write file to output/threads"
+    },
+    {
+      "parameters": {
+        "operation": "toJson",
+        "mode": "each",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.convertToFile",
+      "typeVersion": 1.1,
+      "position": [
+        480,
+        -352
+      ],
+      "id": "0bb4440a-470e-4b19-aaa7-313cd67a0018",
+      "name": "Convert to File"
+    },
+    {
+      "parameters": {
+        "fieldToSplitOut": "data.questions",
+        "options": {}
+      },
+      "type": "n8n-nodes-base.splitOut",
+      "typeVersion": 1,
+      "position": [
+        -144,
+        -496
+      ],
+      "id": "16e233bc-14da-492a-8c54-0b868f7eae8c",
+      "name": "Split Out"
+    }
+  ],
+  "pinData": {},
+  "connections": {
+    "Schedule Trigger": {
+      "main": [
+        [
+          {
+            "node": "Run Ingest_ITDS",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Ingest_ITDS": {
+      "main": [
+        [
+          {
+            "node": "Run Variance.py",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Variance.py": {
+      "main": [
+        [
+          {
+            "node": "Run Build_Questions",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Run Build_Questions": {
+      "main": [
+        [
+          {
+            "node": "Read question files",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Read question files": {
+      "main": [
+        [
+          {
+            "node": "extract to json",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "extract to json": {
+      "main": [
+        [
+          {
+            "node": "Split Out",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "loop over questions to write threads": {
+      "main": [
+        [
+          {
+            "node": "Aggregrate 10 threads into a \"threads\" field",
+            "type": "main",
+            "index": 0
+          }
+        ],
+        [
+          {
+            "node": "Post Questions in Teams",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Post Questions in Teams": {
+      "main": [
+        [
+          {
+            "node": "Set fields (5 fields from questions+message_id+posted_date)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set fields (5 fields from questions+message_id+posted_date)": {
+      "main": [
+        [
+          {
+            "node": "loop over questions to write threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Aggregrate 10 threads into a \"threads\" field": {
+      "main": [
+        [
+          {
+            "node": "Set Fields(period, bu, threads)",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Set Fields(period, bu, threads)": {
+      "main": [
+        [
+          {
+            "node": "Convert to File",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Convert to File": {
+      "main": [
+        [
+          {
+            "node": "write file to output/threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    },
+    "Split Out": {
+      "main": [
+        [
+          {
+            "node": "loop over questions to write threads",
+            "type": "main",
+            "index": 0
+          }
+        ]
+      ]
+    }
+  },
+  "active": false,
+  "settings": {
+    "executionOrder": "v1",
+    "binaryMode": "separate",
+    "availableInMCP": false,
+    "timeSavedMode": "fixed",
+    "errorWorkflow": "cZouDCDJlloRrTcU",
+    "callerPolicy": "workflowsFromSameOwner",
+    "timezone": "Europe/Helsinki"
+  },
+  "versionId": "33bb2476-c7bb-4619-a205-ff0d164da07b",
+  "meta": {
+    "templateCredsSetupCompleted": true,
+    "instanceId": "e1a2a93986315dd00eea9893913e275a12e843f7d0e6aa1c1b51c081ae17d51b"
+  },
+  "nodeGroups": [],
+  "id": "k1ReRmsganzrVqGm",
+  "tags": []
+}
